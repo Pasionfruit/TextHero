@@ -178,6 +178,7 @@ input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent);
 
 /* ---- song select ---- */
 .select-cols { display: grid; grid-template-columns: 290px 1fr; gap: 18px; }
+.song-filter { width: 100%; margin-bottom: 8px; }
 @media (max-width: 800px) { .select-cols { grid-template-columns: 1fr; } }
 .song-list { display: flex; flex-direction: column; gap: 6px; max-height: 72vh; overflow-y: auto; padding-right: 4px; overscroll-behavior: contain; }
 .song-card {

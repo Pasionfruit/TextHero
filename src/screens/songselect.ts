@@ -2,7 +2,7 @@ import type { AppCtx, PlayParams, Screen } from '../app';
 import type { ChartData, ScoreRecord, SongData } from '../types';
 import { DEMO_SONG_ID, makeEmptyChart, modeLabel } from '../charts/chart';
 import { analyzeSong, estimateGrid, generateSampleCharts } from '../charts/autochart';
-import { fetchLeaderboard } from '../net/api';
+import { adminDeleteScore, adminToken, adminUpdateScore, fetchLeaderboard, type LeaderboardEntry } from '../net/api';
 import { isBundledSong, LIBRARY_CHANGED_EVENT } from '../store/bundled';
 import { clamp, el, fmtPct, toast, uid } from '../util';
 
@@ -23,12 +23,27 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
       el('button', { class: 'btn', onclick: () => ctx.nav('menu') }, 'Back'),
     ),
   );
+  let filterText = '';
+  const filterIn = el('input', {
+    type: 'search',
+    class: 'song-filter',
+    placeholder: '🔎 Filter by title or artist…',
+    oninput: (e: Event) => {
+      filterText = (e.target as HTMLInputElement).value.trim().toLowerCase();
+      renderList();
+    },
+  });
   const listBox = el('div', { class: 'song-list' });
   const detailBox = el('div', { class: 'song-detail' });
   page.append(header, el('div', { class: 'select-cols' },
-    el('div', null, listBox, el('div', { class: 'muted sm wheel-hint' }, 'Scroll / ↑ ↓ to browse · Enter to play')),
+    el('div', null, filterIn, listBox, el('div', { class: 'muted sm wheel-hint' }, 'Scroll / ↑ ↓ to browse · Enter to play')),
     detailBox,
   ));
+
+  const visibleSongs = (): SongData[] =>
+    filterText
+      ? songs.filter((x) => `${x.title} ${x.artist}`.toLowerCase().includes(filterText))
+      : songs;
 
   const s = ctx.settings;
 
@@ -42,8 +57,9 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
 
   function renderList(): void {
     listBox.innerHTML = '';
+    const visible = visibleSongs();
     let activeCard: HTMLElement | null = null;
-    for (const song of songs) {
+    for (const song of visible) {
       const card = el('div', { class: 'song-card' + (song.id === selectedSong?.id ? ' active' : ''), onclick: () => void selectSong(song) },
         song.artDataUrl ? el('img', { src: song.artDataUrl, class: 'song-art' }) : el('div', { class: 'song-art placeholder' }, '♪'),
         el('div', null,
@@ -55,16 +71,18 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
       listBox.append(card);
     }
     if (!songs.length) listBox.append(el('div', { class: 'muted pad' }, 'No songs. Upload one!'));
+    else if (!visible.length) listBox.append(el('div', { class: 'muted pad' }, 'No songs match the filter.'));
     activeCard?.scrollIntoView({ block: 'nearest' });
   }
 
   // GH-style browsing: the wheel steps the selection instead of the scrollbar,
   // and arrow keys / Enter work anywhere on the screen
   function stepSelection(dir: number): void {
-    if (!songs.length) return;
-    const idx = songs.findIndex((x) => x.id === selectedSong?.id);
-    const next = clamp(idx + dir, 0, songs.length - 1);
-    if (next !== idx) void selectSong(songs[next]);
+    const visible = visibleSongs();
+    if (!visible.length) return;
+    const idx = visible.findIndex((x) => x.id === selectedSong?.id);
+    const next = idx < 0 ? 0 : clamp(idx + dir, 0, visible.length - 1);
+    if (next !== idx) void selectSong(visible[next]);
   }
 
   let wheelAcc = 0;
@@ -95,6 +113,7 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
   window.addEventListener('keydown', onNavKey);
 
   async function selectSong(song: SongData | null): Promise<void> {
+    if (song?.id !== selectedSong?.id) ctx.audio.stopPreview();
     selectedSong = song;
     renderList();
     if (!song) {
@@ -159,6 +178,31 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
     );
     detailBox.append(practicePanel);
 
+    // preview: fade in a 12s snippet from ~35% into the song
+    const previewBtn = el('button', {
+      class: 'btn big',
+      onclick: async () => {
+        if (ctx.audio.isPreviewing()) {
+          ctx.audio.stopPreview();
+          return;
+        }
+        previewBtn.disabled = true;
+        previewBtn.textContent = '⏳ Loading…';
+        try {
+          await ctx.audio.ensureRunning();
+          const buf = await ctx.audio.bufferForSong(song, ctx.db);
+          if (selectedSong?.id !== song.id) return; // switched away while decoding
+          ctx.audio.startPreview(buf, 12, () => (previewBtn.textContent = '♫ Preview'));
+          previewBtn.textContent = '■ Stop preview';
+        } catch (err) {
+          toast(`Preview failed: ${(err as Error).message}`);
+          previewBtn.textContent = '♫ Preview';
+        } finally {
+          previewBtn.disabled = false;
+        }
+      },
+    }, ctx.audio.isPreviewing() ? '■ Stop preview' : '♫ Preview') as HTMLButtonElement;
+
     // actions
     detailBox.append(
       el('div', { class: 'btn-row' },
@@ -167,6 +211,7 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
           disabled: !selectedChart,
           onclick: () => {
             ctx.saveSettings();
+            ctx.audio.stopPreview();
             if (!selectedChart) return;
             const play: PlayParams = {
               song,
@@ -182,6 +227,7 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
             ctx.nav('play', play);
           },
         }, practice ? 'Practice' : 'Play'),
+        previewBtn,
         song.id !== DEMO_SONG_ID && !isBundledSong(song.id) &&
           el('button', {
             class: 'btn danger',
@@ -202,16 +248,17 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
       detailBox.append(globalLb);
       // if the selection changes mid-fetch, renderDetail() rebuilt detailBox and
       // this panel is detached — updating it is then a harmless no-op
+      const isAdmin = !!adminToken();
       void fetchLeaderboard(ctx.settings, selectedChart.id)
         .then((scores) => {
           globalLb.innerHTML = '';
-          globalLb.append(el('h3', null, 'Global Leaderboard'));
+          globalLb.append(el('h3', null, isAdmin ? 'Global Leaderboard (admin)' : 'Global Leaderboard'));
           if (!scores.length) {
             globalLb.append(el('div', { class: 'muted' }, 'No global scores yet — save a run to set the first record!'));
             return;
           }
           const table = el('table', { class: 'table' },
-            el('tr', null, el('th', null, '#'), el('th', null, 'Player'), el('th', null, 'Score'), el('th', null, 'Acc'), el('th', null, 'Grade'), el('th', null, 'Combo'), el('th', null, 'Date')),
+            el('tr', null, el('th', null, '#'), el('th', null, 'Player'), el('th', null, 'Score'), el('th', null, 'Acc'), el('th', null, 'Grade'), el('th', null, 'Combo'), el('th', null, 'Date'), isAdmin && el('th', null, '')),
           );
           scores.forEach((sc, i) => {
             table.append(
@@ -223,6 +270,24 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
                 el('td', null, sc.grade),
                 el('td', null, String(sc.maxCombo)),
                 el('td', { class: 'muted' }, new Date(sc.dateIso).toLocaleDateString()),
+                isAdmin && el('td', null,
+                  el('button', { class: 'btn sm', title: 'Edit entry', onclick: () => adminEditDialog(sc) }, '✎'),
+                  ' ',
+                  el('button', {
+                    class: 'btn sm danger',
+                    title: 'Delete entry',
+                    onclick: async () => {
+                      if (!confirm(`Delete ${sc.player}'s ${sc.score} on this chart?`)) return;
+                      try {
+                        await adminDeleteScore(ctx.settings, sc.id);
+                        toast('Entry deleted');
+                        await renderDetail();
+                      } catch (err) {
+                        toast(`Delete failed: ${(err as Error).message}`);
+                      }
+                    },
+                  }, '✕'),
+                ),
               ),
             );
           });
@@ -295,6 +360,46 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
   let practiceRate = 1;
   let loopStart: number | null = null;
   let loopEnd: number | null = null;
+
+  // ---- admin: edit a global leaderboard entry ----
+  function adminEditDialog(sc: LeaderboardEntry): void {
+    const playerIn = el('input', { type: 'text', value: sc.player, maxlength: '24' });
+    const scoreIn = el('input', { type: 'number', value: String(sc.score), min: '0', step: '1' });
+    const accIn = el('input', { type: 'number', value: (sc.accuracy * 100).toFixed(2), min: '0', max: '100', step: '0.01' });
+    const gradeIn = selectInput(['SS', 'S', 'A', 'B', 'C', 'D', 'F'], sc.grade, () => {});
+    const comboIn = el('input', { type: 'number', value: String(sc.maxCombo), min: '0', step: '1' });
+    const saveBtn = el('button', { class: 'btn primary' }, 'Save') as HTMLButtonElement;
+    const dlg = el('div', { class: 'modal-back' },
+      el('div', { class: 'panel modal' },
+        el('h2', null, 'Edit leaderboard entry'),
+        row('Player', playerIn),
+        row('Score', scoreIn),
+        row('Accuracy (%)', accIn),
+        row('Grade', gradeIn),
+        row('Max combo', comboIn),
+        el('div', { class: 'btn-row' }, saveBtn, el('button', { class: 'btn', onclick: () => dlg.remove() }, 'Cancel')),
+      ),
+    );
+    saveBtn.onclick = async () => {
+      saveBtn.disabled = true;
+      try {
+        await adminUpdateScore(ctx.settings, sc.id, {
+          player: playerIn.value.trim() || sc.player,
+          score: Math.max(0, Math.round(Number(scoreIn.value) || 0)),
+          accuracy: Math.min(1, Math.max(0, Number(accIn.value) / 100 || 0)),
+          grade: (gradeIn as HTMLSelectElement).value,
+          maxCombo: Math.max(0, Math.round(Number(comboIn.value) || 0)),
+        });
+        dlg.remove();
+        toast('Entry updated');
+        await renderDetail();
+      } catch (err) {
+        toast(`Update failed: ${(err as Error).message}`);
+        saveBtn.disabled = false;
+      }
+    };
+    document.body.append(dlg);
+  }
 
   // ---- upload dialog ----
   function uploadDialog(): void {
@@ -402,6 +507,7 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
 
   return {
     destroy() {
+      ctx.audio.stopPreview();
       clearTimeout(libTimer);
       window.removeEventListener(LIBRARY_CHANGED_EVENT, onLibraryChanged);
       window.removeEventListener('keydown', onNavKey);

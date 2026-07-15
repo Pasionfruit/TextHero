@@ -4,6 +4,7 @@ import type { Difficulty, GameMode } from '../types';
 /** REST client for the server-side (SQLite) global leaderboard. */
 
 export interface LeaderboardEntry {
+  id: number;
   player: string;
   score: number;
   accuracy: number;
@@ -63,3 +64,46 @@ export async function submitScore(s: Settings, sub: ScoreSubmission): Promise<Su
   if (!res.ok || !data?.ok) throw new Error(data?.error || `Score submission failed (${res.status})`);
   return data as SubmitResult;
 }
+
+// ---- admin ----
+// The session token comes from the server on login and is kept in localStorage;
+// credentials themselves never live in client code.
+
+const ADMIN_TOKEN_KEY = 'texthero.admin.token.v1';
+
+export const adminToken = (): string | null => localStorage.getItem(ADMIN_TOKEN_KEY);
+export const clearAdminToken = (): void => localStorage.removeItem(ADMIN_TOKEN_KEY);
+
+export async function adminLogin(s: Settings, username: string, password: string): Promise<void> {
+  const res = await fetch(`${apiBase(s)}/api/admin/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+    signal: AbortSignal.timeout(8000),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !data?.token) throw new Error(data?.error || `Login failed (${res.status})`);
+  localStorage.setItem(ADMIN_TOKEN_KEY, data.token);
+}
+
+async function adminRequest(s: Settings, method: 'DELETE' | 'PATCH', id: number, body?: unknown): Promise<void> {
+  const token = adminToken();
+  if (!token) throw new Error('Not logged in as admin');
+  const res = await fetch(`${apiBase(s)}/api/admin/scores?id=${id}`, {
+    method,
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(8000),
+  });
+  const data = await res.json().catch(() => null);
+  if (res.status === 401) clearAdminToken(); // session expired or server restarted
+  if (!res.ok || !data?.ok) throw new Error(data?.error || `Admin request failed (${res.status})`);
+}
+
+export const adminDeleteScore = (s: Settings, id: number): Promise<void> => adminRequest(s, 'DELETE', id);
+
+export const adminUpdateScore = (
+  s: Settings,
+  id: number,
+  patch: Partial<Pick<LeaderboardEntry, 'player' | 'score' | 'accuracy' | 'grade' | 'maxCombo'>>,
+): Promise<void> => adminRequest(s, 'PATCH', id, patch);

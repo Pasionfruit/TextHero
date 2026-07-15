@@ -1,4 +1,5 @@
 import type { AppCtx, Screen } from '../app';
+import { adminLogin, adminToken, clearAdminToken } from '../net/api';
 import { applyTheme, DEFAULT_SETTINGS } from '../store/settings';
 import { codeLabel, el, toast } from '../util';
 import { checkbox, numInput, row, selectInput } from './songselect';
@@ -108,6 +109,51 @@ export function settingsScreen(root: HTMLElement, ctx: AppCtx, _params: any): Sc
       row('Hit sounds', checkbox(s.hitSounds, (v) => (s.hitSounds = v))),
       row('Multiplayer server', el('input', { type: 'text', value: s.serverUrl, style: { width: '240px' }, onchange: (e: Event) => (s.serverUrl = (e.target as HTMLInputElement).value) })),
     ));
+
+    // admin: manage the global leaderboard (credentials are verified server-side)
+    const adminPanel = el('div', { class: 'panel' }, el('h3', null, 'Admin'));
+    if (adminToken()) {
+      adminPanel.append(
+        el('div', { class: 'muted sm' }, 'Logged in as admin — edit/delete buttons appear on global leaderboards in Song Select.'),
+        el('div', { class: 'btn-row' },
+          el('button', {
+            class: 'btn',
+            onclick: () => {
+              clearAdminToken();
+              toast('Logged out');
+              render();
+            },
+          }, 'Log out'),
+        ),
+      );
+    } else {
+      const userIn = el('input', { type: 'text', placeholder: 'Username', autocomplete: 'username' });
+      const passIn = el('input', { type: 'password', placeholder: 'Password', autocomplete: 'current-password' });
+      const loginBtn = el('button', { class: 'btn primary' }, 'Log in') as HTMLButtonElement;
+      loginBtn.onclick = async () => {
+        loginBtn.disabled = true;
+        loginBtn.textContent = 'Logging in…';
+        try {
+          await adminLogin(s, userIn.value.trim(), passIn.value);
+          toast('Admin login successful');
+          render();
+        } catch (err) {
+          toast(`Login failed: ${(err as Error).message}`);
+          loginBtn.disabled = false;
+          loginBtn.textContent = 'Log in';
+        }
+      };
+      passIn.onkeydown = (e: KeyboardEvent) => {
+        if (e.key === 'Enter') loginBtn.click();
+      };
+      adminPanel.append(
+        row('Username', userIn),
+        row('Password', passIn),
+        el('div', { class: 'btn-row' }, loginBtn),
+        el('div', { class: 'muted sm' }, 'Admins can edit or remove entries on the global leaderboard.'),
+      );
+    }
+    page.append(adminPanel);
 
     page.append(el('div', { class: 'panel' },
       el('h3', null, 'Data'),

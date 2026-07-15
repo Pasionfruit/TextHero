@@ -7,6 +7,7 @@
 // Leaderboard data lives in DATA_DIR/leaderboard.db (default ../data). On
 // hosts with ephemeral disks (Render free tier) point DATA_DIR at a mounted
 // persistent disk or scores reset on every deploy.
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { createServer } from 'node:http';
 import { mkdirSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
@@ -48,7 +49,7 @@ db.exec(`
 `);
 
 const stmtTop = db.prepare(
-  `SELECT player, score, accuracy, grade, max_combo AS maxCombo, no_fail AS noFail, failed, date_iso AS dateIso
+  `SELECT id, player, score, accuracy, grade, max_combo AS maxCombo, no_fail AS noFail, failed, date_iso AS dateIso
    FROM scores WHERE chart_id = ?
    ORDER BY score DESC, accuracy DESC, max_combo DESC, date_iso ASC LIMIT ?`,
 );
@@ -67,6 +68,38 @@ const stmtRank = db.prepare(
    AND (score > ? OR (score = ? AND accuracy > ?) OR (score = ? AND accuracy = ? AND max_combo > ?))`,
 );
 const stmtTotal = db.prepare('SELECT COUNT(*) AS total FROM scores WHERE chart_id = ?');
+const stmtDelete = db.prepare('DELETE FROM scores WHERE id = ?');
+const stmtAdminUpdate = db.prepare(
+  `UPDATE scores SET
+     player = COALESCE(?, player), score = COALESCE(?, score), accuracy = COALESCE(?, accuracy),
+     grade = COALESCE(?, grade), max_combo = COALESCE(?, max_combo)
+   WHERE id = ?`,
+);
+
+// ---- admin auth ----
+// Credentials live server-side only; override the defaults with env vars.
+const ADMIN_USER = process.env.ADMIN_USER || 'Midnight';
+const ADMIN_PASS = process.env.ADMIN_PASS || 'abewashere1';
+const ADMIN_TOKEN_TTL = 12 * 60 * 60 * 1000;
+const adminTokens = new Map(); // token -> expiry epoch ms
+
+const safeEq = (a, b) => {
+  const ba = Buffer.from(String(a));
+  const bb = Buffer.from(String(b));
+  return ba.length === bb.length && timingSafeEqual(ba, bb);
+};
+
+function isAdmin(req) {
+  const auth = String(req.headers.authorization || '');
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  const exp = adminTokens.get(token);
+  if (!exp) return false;
+  if (Date.now() > exp) {
+    adminTokens.delete(token);
+    return false;
+  }
+  return true;
+}
 
 const GRADES = new Set(['SS', 'S', 'A', 'B', 'C', 'D', 'F']);
 const MODES = new Set(['five', 'keyboard', 'letters']);
@@ -109,8 +142,8 @@ const API_HEADERS = {
   'content-type': 'application/json',
   'cache-control': 'no-store',
   'access-control-allow-origin': '*',
-  'access-control-allow-methods': 'GET, POST, OPTIONS',
-  'access-control-allow-headers': 'content-type',
+  'access-control-allow-methods': 'GET, POST, PATCH, DELETE, OPTIONS',
+  'access-control-allow-headers': 'content-type, authorization',
 };
 
 const sendJson = (res, status, obj) => res.writeHead(status, API_HEADERS).end(JSON.stringify(obj));
@@ -168,6 +201,51 @@ async function handleApi(req, res, url) {
     }
     const best = improved ? rec : { score: Number(existing.score), accuracy: Number(existing.accuracy), maxCombo: Number(existing.max_combo) };
     return sendJson(res, 200, { ok: true, improved, ...rankOf(rec.chartId, best.score, best.accuracy, best.maxCombo) });
+  }
+
+  if (url.pathname === '/api/admin/login' && req.method === 'POST') {
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      return sendJson(res, 400, { error: 'invalid JSON' });
+    }
+    const userOk = safeEq(body?.username ?? '', ADMIN_USER);
+    const passOk = safeEq(body?.password ?? '', ADMIN_PASS);
+    if (!userOk || !passOk) {
+      await new Promise((r) => setTimeout(r, 400)); // slow down guessing
+      return sendJson(res, 401, { error: 'invalid credentials' });
+    }
+    const token = randomUUID();
+    const now = Date.now();
+    for (const [t, exp] of adminTokens) if (exp < now) adminTokens.delete(t);
+    adminTokens.set(token, now + ADMIN_TOKEN_TTL);
+    return sendJson(res, 200, { ok: true, token });
+  }
+
+  if (url.pathname === '/api/admin/scores' && (req.method === 'DELETE' || req.method === 'PATCH')) {
+    if (!isAdmin(req)) return sendJson(res, 401, { error: 'admin login required' });
+    const id = Math.round(Number(url.searchParams.get('id')));
+    if (!Number.isFinite(id) || id <= 0) return sendJson(res, 400, { error: 'id required' });
+
+    if (req.method === 'DELETE') {
+      const r = stmtDelete.run(id);
+      return sendJson(res, 200, { ok: true, deleted: Number(r.changes) });
+    }
+
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      return sendJson(res, 400, { error: 'invalid JSON' });
+    }
+    const player = body.player !== undefined ? cleanStr(body.player, 24).trim() || null : null;
+    const score = body.score !== undefined ? Math.round(clampNum(body.score, 0, 1e9)) : null;
+    const accuracy = body.accuracy !== undefined ? clampNum(body.accuracy, 0, 1) : null;
+    const grade = body.grade !== undefined && GRADES.has(body.grade) ? body.grade : null;
+    const maxCombo = body.maxCombo !== undefined ? Math.round(clampNum(body.maxCombo, 0, 1e6)) : null;
+    const r = stmtAdminUpdate.run(player, score, accuracy, grade, maxCombo, id);
+    return sendJson(res, 200, { ok: true, updated: Number(r.changes) });
   }
 
   return sendJson(res, 404, { error: 'not found' });

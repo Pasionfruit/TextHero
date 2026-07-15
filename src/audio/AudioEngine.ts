@@ -6,6 +6,8 @@ export class AudioEngine {
   ctx: AudioContext;
   master: GainNode;
   private bufferCache = new Map<string, AudioBuffer>();
+  private previewSrc: AudioBufferSourceNode | null = null;
+  private previewOnEnd: (() => void) | null = null;
 
   constructor() {
     this.ctx = new AudioContext({ latencyHint: 'interactive' });
@@ -55,6 +57,50 @@ export class AudioEngine {
     }
     this.bufferCache.set(cacheKey, buf);
     return buf;
+  }
+
+  /** Play a faded snippet of a song (song-select preview). Only one preview at a time. */
+  startPreview(buf: AudioBuffer, durSec = 12, onEnd?: () => void): void {
+    this.stopPreview();
+    const t = this.ctx.currentTime;
+    // start around the 35% mark — usually past the intro, into the hook
+    const from = Math.min(buf.duration * 0.35, Math.max(0, buf.duration - durSec));
+    const dur = Math.min(durSec, buf.duration - from);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.85, t + 0.3);
+    g.gain.setValueAtTime(0.85, Math.max(t + 0.3, t + dur - 1.2));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(g).connect(this.master);
+    src.start(t, from, dur + 0.05);
+    src.onended = () => {
+      if (this.previewSrc === src) this.stopPreview();
+    };
+    this.previewSrc = src;
+    this.previewOnEnd = onEnd ?? null;
+  }
+
+  stopPreview(): void {
+    const src = this.previewSrc;
+    const onEnd = this.previewOnEnd;
+    this.previewSrc = null;
+    this.previewOnEnd = null;
+    if (src) {
+      src.onended = null;
+      try {
+        src.stop();
+      } catch {
+        /* already stopped */
+      }
+      src.disconnect();
+      onEnd?.();
+    }
+  }
+
+  isPreviewing(): boolean {
+    return this.previewSrc !== null;
   }
 
   /** Short synthesized click for hit feedback — zero-asset, near-zero latency. */

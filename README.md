@@ -34,6 +34,7 @@ npm run build        # typecheck + production build to dist/
 
 ### Songs & charts
 - Upload **MP3 / WAV / OGG**; stored locally in IndexedDB with title, artist, BPM, offset, and optional album art.
+- **Automatic sample levels**: every upload is analyzed (3-band onset detection via an offline filter pass) and playable charts are generated instantly — five-key Easy/Medium/Hard plus a Letters chart. **BPM and offset are auto-detected** (autocorrelation tempo + grid-phase fit) when left blank; enter a BPM to lock it and only fit the phase. Kicks anchor the outer lanes, hats the inner ones, melodic onsets walk the middle lanes, and sustained mid-band energy becomes hold notes. The editor's **✨ Auto-fill** button regenerates any chart (any mode/difficulty) from the audio, undoable with Ctrl+Z. Assumes a steady tempo; charts are starting points meant to be refined.
 - **Chart editor**: vertical timeline with **waveform**, BPM editor + tap-BPM, offset adjustment, snap divisions **1/1 – 1/32 incl. 1/24**, click-to-place, drag-to-move, drag-down for holds, right-click delete, box select, copy/paste, undo/redo, multiple difficulty charts per song (Easy/Medium/Hard/Expert × mode), instant **test play (F5)** that returns to the editor, JSON export.
 
 ### Practice, replays, leaderboards
@@ -65,6 +66,7 @@ src/
   audio/AudioEngine.ts  AudioContext, decoding, latency, hit sounds
   audio/demoSong.ts     procedural demo track + event tables for demo charts
   charts/chart.ts       beat↔ms conversion, chart compilation, demo charts
+  charts/autochart.ts   onset detection, BPM/offset estimation, auto chart generation
   engine/Conductor.ts   audio-clock song timing, count-in, pause/seek
   engine/GameSession.ts deterministic judging/score/combo/health engine
   input/Keyboard.ts     input router (code- and key-based bindings)
@@ -80,4 +82,4 @@ Charts store note positions in **beats** (plus per-song BPM/offset), so re-timin
 
 ## Not yet implemented (future work)
 
-Background videos, auto-charting from onset detection, chart import UI, community chart sharing, ranked matchmaking, seasonal events/daily challenges, tournament/spectator modes, ghost replays, controller/MIDI/dance-pad input, VR, achievements, themes. Online band mode (shared pools over the network) — band is currently local-only; online is competitive.
+Background videos, tempo-change (variable BPM) support in auto-charting, chart import UI, community chart sharing, ranked matchmaking, seasonal events/daily challenges, tournament/spectator modes, ghost replays, controller/MIDI/dance-pad input, VR, achievements, themes. Online band mode (shared pools over the network) — band is currently local-only; online is competitive.

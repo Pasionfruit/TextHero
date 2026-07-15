@@ -2,6 +2,7 @@ import type { AppCtx, PlayParams, Screen } from '../app';
 import type { ChartData, Difficulty, GameMode, NoteData, SongData } from '../types';
 import { DIFFICULTIES } from '../types';
 import { beatToMs, laneCountOf, LETTERS, makeEmptyChart, modeLabel, msToBeat } from '../charts/chart';
+import { analyzeSong, generateNotes, type SongAnalysis } from '../charts/autochart';
 import { clamp, codeLabel, download, el, fitCanvas, fmtTime, toast } from '../util';
 import { Conductor } from '../engine/Conductor';
 import { laneColor } from '../store/settings';
@@ -41,6 +42,8 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
   let activeIdx = 0;
   let notes: NoteData[] = [];
   let buffer: AudioBuffer | null = null;
+  let analysis: SongAnalysis | null = null;
+  let analyzing = false;
   let peaksMin: Float32Array | null = null;
   let peaksMax: Float32Array | null = null;
   const PEAK_CHUNK = 512;
@@ -204,6 +207,10 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
         },
       }, '+ chart'),
       el('button', {
+        class: 'btn sm',
+        onclick: () => void autoFill(),
+      }, '✨ Auto-fill'),
+      el('button', {
         class: 'btn sm danger',
         onclick: () => {
           if (charts.length <= 1) return toast('Cannot delete the only chart');
@@ -241,6 +248,31 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
   function commitActive(): void {
     const c = active();
     if (c) c.notes = notes.slice().sort((a, b) => a.beat - b.beat || a.lane - b.lane);
+  }
+
+  /** Generate notes for the active chart from the song's audio (replaces current notes; undoable). */
+  async function autoFill(): Promise<void> {
+    const c = active();
+    if (!song || !c) return;
+    if (!buffer) return toast('Audio is still loading — try again in a moment');
+    if (analyzing) return;
+    if (c.notes.length && !confirm('Replace the current notes with an auto-generated chart? (Undo with Ctrl+Z)')) return;
+    try {
+      if (!analysis) {
+        analyzing = true;
+        toast('Analyzing audio…');
+        analysis = await analyzeSong(buffer);
+      }
+      pushUndo();
+      notes = generateNotes(song, analysis, c.mode, c.difficulty, laneCountOf(c));
+      c.notes = notes;
+      selection.clear();
+      toast(`Generated ${notes.length} notes for ${modeLabel(c.mode)} · ${c.difficulty}`);
+    } catch (err) {
+      toast(`Auto-fill failed: ${(err as Error).message}`);
+    } finally {
+      analyzing = false;
+    }
   }
 
   // ---- persistence ----

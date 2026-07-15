@@ -1,6 +1,7 @@
 import type { AppCtx, PlayParams, Screen } from '../app';
 import type { ChartData, ScoreRecord, SongData } from '../types';
 import { DEMO_SONG_ID, makeEmptyChart, modeLabel } from '../charts/chart';
+import { analyzeSong, estimateGrid, generateSampleCharts } from '../charts/autochart';
 import { el, fmtPct, toast, uid } from '../util';
 
 export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: string }): Screen {
@@ -217,8 +218,8 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
     const artIn = el('input', { type: 'file', accept: 'image/*' });
     const titleIn = el('input', { type: 'text', placeholder: 'Title' });
     const artistIn = el('input', { type: 'text', placeholder: 'Artist' });
-    const bpmIn = el('input', { type: 'number', value: '120', min: '40', max: '300', step: '0.01' });
-    const offsetIn = el('input', { type: 'number', value: '0', step: '1' });
+    const bpmIn = el('input', { type: 'number', placeholder: 'auto-detect', min: '40', max: '300', step: '0.01' });
+    const offsetIn = el('input', { type: 'number', placeholder: 'auto-detect', step: '1' });
     const saveBtn = el('button', { class: 'btn primary' }, 'Add song');
 
     fileIn.onchange = () => {
@@ -230,7 +231,7 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
       const f = fileIn.files?.[0];
       if (!f) return toast('Choose an audio file');
       if (!/\.(mp3|wav|ogg)$/i.test(f.name) && !f.type.startsWith('audio/')) return toast('MP3, WAV or OGG only');
-      saveBtn.textContent = 'Decoding…';
+      saveBtn.textContent = 'Analyzing…';
       (saveBtn as HTMLButtonElement).disabled = true;
       try {
         await ctx.audio.ensureRunning();
@@ -257,11 +258,29 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
           artDataUrl,
           durationMs: Math.round(buf.duration * 1000),
         };
-        await ctx.db.put('songs', song);
-        const chart = makeEmptyChart(song.id, 'five', 'medium');
-        await ctx.db.put('charts', chart);
+
+        // analyze the audio and generate sample charts; BPM/offset left blank → auto-detect
+        let chartCount = 0;
+        try {
+          const analysis = await analyzeSong(buf);
+          const userBpm = Number(bpmIn.value);
+          const grid = estimateGrid(analysis, userBpm > 0 ? userBpm : undefined);
+          song.bpm = userBpm > 0 ? userBpm : grid.bpm;
+          song.offsetMs = offsetIn.value !== '' ? Number(offsetIn.value) || 0 : grid.offsetMs;
+          const charts = generateSampleCharts(song, analysis);
+          await ctx.db.put('songs', song);
+          for (const c of charts) await ctx.db.put('charts', c);
+          chartCount = charts.length;
+        } catch {
+          await ctx.db.put('songs', song);
+        }
+        if (chartCount === 0) {
+          await ctx.db.put('charts', makeEmptyChart(song.id, 'five', 'medium'));
+          toast('Song added — auto-charting found too few beats, open the editor to chart it');
+        } else {
+          toast(`Song added — ${chartCount} sample charts generated (BPM ${song.bpm}). Refine them in the editor!`);
+        }
         dlg.remove();
-        toast('Song added — open the editor to chart it');
         await refresh(song.id);
       } catch (err) {
         toast(`Could not decode audio: ${(err as Error).message}`);

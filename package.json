@@ -1,0 +1,19 @@
+{
+  "name": "texthero",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "server": "node server/server.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "vite": "^5.4.8"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

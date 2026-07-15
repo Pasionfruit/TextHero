@@ -1,12 +1,59 @@
-// TextHero lobby server: relays lobby state, chart/audio payloads, the start
-// signal, and live progress. Scoring stays on the clients (deterministic engine).
+// TextHero server: serves the built game (dist/) over HTTP and runs the
+// multiplayer lobby over WebSocket on the same port — one process, one URL,
+// which is exactly what hosts like Render expect. Scoring stays on the
+// clients (deterministic engine); this only relays lobby state, chart/audio
+// payloads, the start signal, and live progress.
 //   npm run server   (default port 8137, override with PORT env var)
+import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
+import { extname, join, resolve, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
 
 const PORT = Number(process.env.PORT || 8137);
 const MAX_SONG_PAYLOAD = 24 * 1024 * 1024; // ~18MB audio after base64
+const DIST = resolve(join(fileURLToPath(new URL('.', import.meta.url)), '..', 'dist'));
 
-const wss = new WebSocketServer({ port: PORT, maxPayload: MAX_SONG_PAYLOAD });
+const MIME = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+  '.map': 'application/json',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+  '.woff2': 'font/woff2',
+};
+
+const httpServer = createServer(async (req, res) => {
+  try {
+    let path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    if (path === '/') path = '/index.html';
+    let file = resolve(join(DIST, path));
+    if (file !== DIST && !file.startsWith(DIST + sep)) {
+      res.writeHead(403).end('forbidden');
+      return;
+    }
+    let data;
+    try {
+      data = await readFile(file);
+    } catch {
+      file = join(DIST, 'index.html'); // SPA fallback
+      data = await readFile(file);
+    }
+    res.writeHead(200, {
+      'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream',
+      'cache-control': path.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache',
+    });
+    res.end(data);
+  } catch {
+    res.writeHead(200, { 'content-type': 'text/plain' });
+    res.end('TextHero lobby server is running. Build the client (npm run build) to serve the game from here too.');
+  }
+});
+
+const wss = new WebSocketServer({ server: httpServer, maxPayload: MAX_SONG_PAYLOAD });
 const rooms = new Map(); // code -> room
 
 let nextId = 1;
@@ -215,4 +262,6 @@ wss.on('connection', (ws) => {
   ws.on('close', () => leaveRoom(player));
 });
 
-console.log(`TextHero lobby server listening on ws://localhost:${PORT}`);
+httpServer.listen(PORT, () => {
+  console.log(`TextHero server listening on http://localhost:${PORT} (game + ws lobby)`);
+});

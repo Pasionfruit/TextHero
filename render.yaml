@@ -1,0 +1,13 @@
+# Render Blueprint — deploy TextHero as a single web service that serves the
+# built game over HTTPS and the multiplayer lobby over WebSocket on the same URL.
+# Dashboard → New → Blueprint → point it at this repo, or create a Web Service
+# manually with the same build/start commands.
+services:
+  - type: web
+    name: texthero
+    runtime: node
+    plan: free
+    # --include=dev is required: vite + typescript (devDependencies) do the build
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: node server/server.mjs
+    healthCheckPath: /

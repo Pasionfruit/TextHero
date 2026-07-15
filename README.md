@@ -15,6 +15,18 @@ npm run server       # optional: online-multiplayer lobby server (ws://localhost
 npm run build        # typecheck + production build to dist/
 ```
 
+## Deploying (Render)
+
+`node server/server.mjs` serves the **built game and the WebSocket lobby on one port**, so a single Render Web Service runs everything — no separate static site needed. The repo includes a [render.yaml](render.yaml) blueprint.
+
+1. Push the repo to GitHub.
+2. On [render.com](https://render.com): **New → Blueprint**, select this repo, **Apply**. (Or **New → Web Service** manually: build command `npm install --include=dev && npm run build`, start command `node server/server.mjs`.)
+3. Open the service URL. Done — the client automatically connects multiplayer to its own host over `wss://`, so online lobbies work out of the box.
+
+Notes:
+- The **free plan spins down** after ~15 min of inactivity; the first visit afterwards takes up to a minute to wake.
+- All songs, scores, and replays live in each player's **browser (IndexedDB)** — the server stores nothing and needs no database. Uploaded songs are shared to lobby members over the WebSocket at play time.
+
 ## Features
 
 ### Gameplay

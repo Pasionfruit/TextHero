@@ -3,11 +3,15 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "server": "node server/server.mjs"
+    "server": "node server/server.mjs",
+    "start": "node server/server.mjs"
   },
   "devDependencies": {
     "typescript": "^5.5.4",

@@ -28,6 +28,23 @@ export interface Settings {
   serverUrl: string;
 }
 
+/**
+ * Deployed builds serve the game and the lobby from one host, so default to
+ * the page's own origin (wss on https — browsers block ws: from https pages).
+ * Local dev (vite on :5173) keeps pointing at the standalone `npm run server`.
+ */
+function defaultServerUrl(): string {
+  if (
+    typeof location !== 'undefined' &&
+    location.protocol.startsWith('http') &&
+    !['localhost', '127.0.0.1', ''].includes(location.hostname) &&
+    !location.port.startsWith('517') // vite dev/preview
+  ) {
+    return (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host;
+  }
+  return 'ws://localhost:8137';
+}
+
 export const DEFAULT_SETTINGS: Settings = {
   playerName: 'Player',
   bindings: [
@@ -57,7 +74,7 @@ export const DEFAULT_SETTINGS: Settings = {
   reducedEffects: false,
   fpsCap: 0,
   windows: { perfect: 25, great: 60, good: 100, bad: 150 },
-  serverUrl: 'ws://localhost:8137',
+  serverUrl: defaultServerUrl(),
 };
 
 const KEY = 'texthero.settings.v1';

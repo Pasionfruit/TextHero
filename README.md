@@ -11,9 +11,11 @@ The playfield is a **Guitar Hero-style 3D highway**: lanes converge to a vanishi
 ```bash
 npm install
 npm run dev          # game at http://localhost:5173
-npm run server       # optional: online-multiplayer lobby server (ws://localhost:8137)
+npm run server       # multiplayer lobby + global leaderboard API (http://localhost:8137)
 npm run build        # typecheck + production build to dist/
 ```
+
+Requires **Node ≥ 22.13** (the leaderboard uses the built-in `node:sqlite` module). Run the server alongside `npm run dev` if you want the global leaderboard while developing; without it the game still works, showing local scores only.
 
 ## Deploying (Render)
 
@@ -25,7 +27,8 @@ npm run build        # typecheck + production build to dist/
 
 Notes:
 - The **free plan spins down** after ~15 min of inactivity; the first visit afterwards takes up to a minute to wake.
-- All songs, scores, and replays live in each player's **browser (IndexedDB)** — the server stores nothing and needs no database. Uploaded songs are shared to lobby members over the WebSocket at play time.
+- Songs, charts, and replays live in each player's **browser (IndexedDB)**; uploaded songs are shared to lobby members over the WebSocket at play time.
+- The **global leaderboard** lives in a SQLite file on the server (`DATA_DIR/leaderboard.db`, default `./data`). Render's free-tier disk is **ephemeral** — scores reset on every deploy. To keep them, attach a persistent disk (paid instance) and set `DATA_DIR` to its mount path; see the comments in [render.yaml](render.yaml).
 
 ## Features
 
@@ -42,17 +45,20 @@ Notes:
 ### Modifiers & options
 - Scroll **up or down**, plus **Reverse**, **Hidden** (notes fade near the line), **Sudden** (notes appear late), scroll-speed multiplier.
 - Judgment-line position, note skins (**gems / bars / circles / arrows**), lane colors, note size, lane spacing, background dim, particles, FPS limit, fullscreen, hit sounds, custom font.
+- **Dark / light theme** — toggle from the main menu or Settings → Visuals; the chart editor's timeline follows the theme (the gameplay highway stays dark by design).
 - **Accessibility**: colorblind-safe palette (Okabe–Ito), high-contrast mode, reduced effects, adjustable note size/spacing, one-handed play via rebinding.
 
 ### Songs & charts
+- **Bundled library**: every `Title - Artist.mp3` dropped into `src/audio/` ships with the build. On first boot each one is decoded, analyzed, and auto-charted in the background — songs appear in Song Select one by one. Bundled songs get deterministic IDs derived from the filename, so every player shares the same global leaderboard per chart.
 - Upload **MP3 / WAV / OGG**; stored locally in IndexedDB with title, artist, BPM, offset, and optional album art.
 - **Automatic sample levels**: every upload is analyzed (3-band onset detection via an offline filter pass) and playable charts are generated instantly — five-key Easy/Medium/Hard plus a Letters chart. **BPM and offset are auto-detected** (autocorrelation tempo + grid-phase fit) when left blank; enter a BPM to lock it and only fit the phase. Kicks anchor the outer lanes, hats the inner ones, melodic onsets walk the middle lanes, and sustained mid-band energy becomes hold notes. The editor's **✨ Auto-fill** button regenerates any chart (any mode/difficulty) from the audio, undoable with Ctrl+Z. Assumes a steady tempo; charts are starting points meant to be refined.
-- **Chart editor**: vertical timeline with **waveform**, BPM editor + tap-BPM, offset adjustment, snap divisions **1/1 – 1/32 incl. 1/24**, click-to-place, drag-to-move, drag-down for holds, right-click delete, box select, copy/paste, undo/redo, multiple difficulty charts per song (Easy/Medium/Hard/Expert × mode), instant **test play (F5)** that returns to the editor, JSON export.
+- **Chart editor**: vertical timeline with **waveform**, a **transport scrubber** (play/pause + draggable seek bar with live timecode) to jump anywhere in the song while placing notes, BPM editor + tap-BPM, offset adjustment, snap divisions **1/1 – 1/32 incl. 1/24**, click-to-place, drag-to-move, drag-down for holds, right-click delete, box select, copy/paste, undo/redo, multiple difficulty charts per song (Easy/Medium/Hard/Expert × mode), instant **test play (F5)** that returns to the editor, JSON export.
 
 ### Practice, replays, leaderboards
 - **Practice mode**: 0.5×/0.75×/1×/1.25×/1.5× rates and A–B section looping (`[` `]` `\` in-game). Practice never touches leaderboards.
 - **Replays**: every solo performance records all inputs with timing; watch any leaderboard entry with pause/seek controls. Playback is deterministic — the replay re-runs the real judging engine.
-- **Local leaderboards** per song/difficulty/mode: score, accuracy, grade, max combo, date, No-Fail flag.
+- **Global leaderboard** (server-side SQLite): after a solo run you can **save it under any name** — it's submitted to the shared board and your global rank comes back — or **discard it**, which also deletes the local score and replay. The server keeps each player name's best run per chart; only 1×-rate runs are ranked. API: `GET /api/leaderboard?chartId=…` and `POST /api/scores`.
+- **Local scores** per song/difficulty/mode (score, accuracy, grade, max combo, date, No-Fail flag) stay on-device and keep their watchable replays.
 
 ### Multiplayer (1–4 players)
 - **Local** (one keyboard): each player gets their own lanes and binding set.
@@ -84,10 +90,12 @@ src/
   input/Keyboard.ts     input router (code- and key-based bindings)
   render/Playfield.ts   canvas note renderer, skins, modifiers, HUD, particles
   net/NetClient.ts      WebSocket lobby client
+  net/api.ts            REST client for the global leaderboard
   screens/              menu, song select, gameplay, results, editor, settings, lobby
   store/db.ts           IndexedDB (songs, charts, audio blobs, scores, replays)
+  store/bundled.ts      background importer for the mp3s bundled from src/audio
   store/settings.ts     settings model + persistence
-server/server.mjs       lobby/relay server (ws)
+server/server.mjs       lobby/relay server (ws) + global leaderboard (SQLite)
 ```
 
 Charts store note positions in **beats** (plus per-song BPM/offset), so re-timing a song re-times every chart. At play time notes are compiled to milliseconds and judged against the audio clock.

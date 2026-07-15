@@ -73,7 +73,9 @@ export interface SongData {
   artist: string;
   bpm: number;
   offsetMs: number; // audio time of beat 0
-  audioId: string | null; // IndexedDB blob key; null = built-in synthesized demo
+  audioId: string | null; // IndexedDB blob key; null = built-in synthesized demo or bundled asset
+  /** bundled songs: static asset URL fetched on demand instead of an IndexedDB blob */
+  audioUrl?: string;
   artDataUrl?: string;
   durationMs: number;
 }

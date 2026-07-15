@@ -1,8 +1,10 @@
 import type { AppCtx, ResultsParams, Screen } from '../app';
+import type { ScoreRecord } from '../types';
 import { JUDGMENTS } from '../types';
 import { el, fmtPct } from '../util';
 import { judgeColor } from '../store/settings';
 import { modeName } from '../charts/chart';
+import { submitScore } from '../net/api';
 
 const GRADE_COLORS: Record<string, string> = {
   SS: '#ffd700',
@@ -60,6 +62,99 @@ export function resultsScreen(root: HTMLElement, ctx: AppCtx, params: ResultsPar
     );
   }
 
+  // save run to the global leaderboard with a chosen name, or discard it
+  let discarded = false;
+  let watchBtn: HTMLButtonElement | null = null;
+  if (params.scoreSavedId) {
+    const nameIn = el('input', { type: 'text', value: params.players[0].name, maxlength: '24', placeholder: 'Name for this run' });
+    const saveBtn = el('button', { class: 'btn primary' }, 'Save run') as HTMLButtonElement;
+    const discardBtn = el('button', { class: 'btn danger' }, 'Discard run') as HTMLButtonElement;
+    const statusEl = el('div', { class: 'muted' },
+      params.playParams.rate === 1
+        ? 'Save this run to the global leaderboard under a name of your choice, or discard it.'
+        : 'Only 1x-rate runs are ranked globally — saving keeps this run on this device only.');
+    const panel = el('div', { class: 'panel' },
+      el('h2', null, 'Save this run?'),
+      el('div', { class: 'form-row' }, el('label', null, 'Player name'), nameIn),
+      el('div', { class: 'btn-row' }, saveBtn, discardBtn),
+      statusEl,
+    );
+    page.append(panel);
+
+    const finish = (msg: string) => {
+      nameIn.disabled = true;
+      saveBtn.remove();
+      discardBtn.remove();
+      statusEl.textContent = msg;
+    };
+
+    saveBtn.onclick = async () => {
+      const name = (nameIn.value.trim() || ctx.settings.playerName || 'Player').slice(0, 24);
+      saveBtn.disabled = discardBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+      try {
+        // stamp the chosen name onto the locally saved score + replay
+        const sc = await ctx.db.get<ScoreRecord>('scores', params.scoreSavedId!);
+        if (sc && sc.player !== name) {
+          sc.player = name;
+          await ctx.db.put('scores', sc);
+        }
+        if (params.replaySavedId) {
+          const rep = await ctx.db.replay(params.replaySavedId);
+          if (rep && rep.player !== name) {
+            rep.player = name;
+            await ctx.db.put('replays', rep);
+          }
+        }
+      } catch {
+        /* local rename is best-effort */
+      }
+      if (params.playParams.rate !== 1) {
+        finish(`Saved on this device as “${name}”.`);
+        return;
+      }
+      try {
+        const p = params.players[0];
+        const r = await submitScore(ctx.settings, {
+          chartId: params.chart.id,
+          songId: params.song.id,
+          title: params.song.title,
+          artist: params.song.artist,
+          mode: params.chart.mode,
+          difficulty: params.chart.difficulty,
+          player: name,
+          score: p.score,
+          accuracy: p.accuracy,
+          grade: p.grade,
+          maxCombo: p.maxCombo,
+          rate: params.playParams.rate,
+          noFail: params.playParams.noFail,
+          failed: p.failed,
+        });
+        finish(r.improved
+          ? `Saved as “${name}” — global rank #${r.rank} of ${r.total}!`
+          : `Saved — “${name}” already has a better run on this chart (global rank #${r.rank} of ${r.total}).`);
+      } catch (err) {
+        statusEl.textContent = `Saved on this device, but the global leaderboard could not be reached (${(err as Error).message}). Try again?`;
+        saveBtn.disabled = discardBtn.disabled = false;
+        saveBtn.textContent = 'Retry save';
+      }
+    };
+
+    discardBtn.onclick = async () => {
+      saveBtn.disabled = discardBtn.disabled = true;
+      try {
+        await ctx.db.del('scores', params.scoreSavedId!);
+        if (params.replaySavedId) await ctx.db.del('replays', params.replaySavedId);
+      } catch {
+        /* already gone */
+      }
+      discarded = true;
+      watchBtn?.remove();
+      finish('Run discarded — nothing was saved.');
+    };
+  }
+
   // online rankings
   if (params.online) {
     const box = el('div', { class: 'panel' }, el('h2', null, 'Match rankings'), el('div', { class: 'muted' }, 'Waiting for all players to finish…'));
@@ -93,17 +188,17 @@ export function resultsScreen(root: HTMLElement, ctx: AppCtx, params: ResultsPar
     btns.append(el('button', { class: 'btn primary', onclick: () => ctx.nav('play', params.playParams) }, 'Retry'));
   }
   if (params.replaySavedId) {
-    btns.append(
-      el('button', {
-        class: 'btn',
-        onclick: async () => {
-          const rep = await ctx.db.replay(params.replaySavedId!);
-          if (rep) {
-            ctx.nav('play', { ...params.playParams, replay: rep, players: [{ name: rep.player }], online: false, band: null });
-          }
-        },
-      }, 'Watch replay'),
-    );
+    watchBtn = el('button', {
+      class: 'btn',
+      onclick: async () => {
+        if (discarded) return;
+        const rep = await ctx.db.replay(params.replaySavedId!);
+        if (rep) {
+          ctx.nav('play', { ...params.playParams, replay: rep, players: [{ name: rep.player }], online: false, band: null });
+        }
+      },
+    }, 'Watch replay') as HTMLButtonElement;
+    btns.append(watchBtn);
   }
   btns.append(
     el('button', { class: 'btn', onclick: () => ctx.nav(params.online ? 'lobby' : 'songselect', params.online ? {} : { songId: params.song.id }) },

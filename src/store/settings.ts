@@ -2,6 +2,7 @@ import type { Windows } from '../types';
 
 export interface Settings {
   playerName: string;
+  theme: 'dark' | 'light';
   /** five-key bindings per local player slot (KeyboardEvent.code). */
   bindings: string[][];
   scrollDirection: 'up' | 'down';
@@ -47,6 +48,7 @@ function defaultServerUrl(): string {
 
 export const DEFAULT_SETTINGS: Settings = {
   playerName: 'Player',
+  theme: 'dark',
   bindings: [
     ['KeyD', 'KeyF', 'Space', 'KeyJ', 'KeyK'],
     ['ArrowLeft', 'ArrowDown', 'ShiftRight', 'ArrowUp', 'ArrowRight'],
@@ -97,6 +99,13 @@ export function loadSettings(): Settings {
 export function saveSettings(s: Settings): void {
   localStorage.setItem(KEY, JSON.stringify(s));
 }
+
+/** Stamp the active theme on <html> so CSS variables (and canvases) follow it. */
+export function applyTheme(s: Settings): void {
+  document.documentElement.dataset.theme = s.theme;
+}
+
+export const isLightTheme = (): boolean => document.documentElement.dataset.theme === 'light';
 
 /** Okabe–Ito colorblind-safe palette used when settings.colorblind is on. */
 export const COLORBLIND_LANE_COLORS = ['#0072b2', '#e69f00', '#009e73', '#cc79a7', '#f0e442'];

@@ -2,7 +2,9 @@ import type { AppCtx, PlayParams, Screen } from '../app';
 import type { ChartData, ScoreRecord, SongData } from '../types';
 import { DEMO_SONG_ID, makeEmptyChart, modeLabel } from '../charts/chart';
 import { analyzeSong, estimateGrid, generateSampleCharts } from '../charts/autochart';
-import { el, fmtPct, toast, uid } from '../util';
+import { fetchLeaderboard } from '../net/api';
+import { isBundledSong, LIBRARY_CHANGED_EVENT } from '../store/bundled';
+import { clamp, el, fmtPct, toast, uid } from '../util';
 
 export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: string }): Screen {
   root.innerHTML = '';
@@ -23,7 +25,10 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
   );
   const listBox = el('div', { class: 'song-list' });
   const detailBox = el('div', { class: 'song-detail' });
-  page.append(header, el('div', { class: 'select-cols' }, listBox, detailBox));
+  page.append(header, el('div', { class: 'select-cols' },
+    el('div', null, listBox, el('div', { class: 'muted sm wheel-hint' }, 'Scroll / ↑ ↓ to browse · Enter to play')),
+    detailBox,
+  ));
 
   const s = ctx.settings;
 
@@ -37,6 +42,7 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
 
   function renderList(): void {
     listBox.innerHTML = '';
+    let activeCard: HTMLElement | null = null;
     for (const song of songs) {
       const card = el('div', { class: 'song-card' + (song.id === selectedSong?.id ? ' active' : ''), onclick: () => void selectSong(song) },
         song.artDataUrl ? el('img', { src: song.artDataUrl, class: 'song-art' }) : el('div', { class: 'song-art placeholder' }, '♪'),
@@ -45,10 +51,48 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
           el('div', { class: 'muted' }, `${song.artist} · ${song.bpm} BPM`),
         ),
       );
+      if (song.id === selectedSong?.id) activeCard = card;
       listBox.append(card);
     }
     if (!songs.length) listBox.append(el('div', { class: 'muted pad' }, 'No songs. Upload one!'));
+    activeCard?.scrollIntoView({ block: 'nearest' });
   }
+
+  // GH-style browsing: the wheel steps the selection instead of the scrollbar,
+  // and arrow keys / Enter work anywhere on the screen
+  function stepSelection(dir: number): void {
+    if (!songs.length) return;
+    const idx = songs.findIndex((x) => x.id === selectedSong?.id);
+    const next = clamp(idx + dir, 0, songs.length - 1);
+    if (next !== idx) void selectSong(songs[next]);
+  }
+
+  let wheelAcc = 0;
+  listBox.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    wheelAcc += e.deltaY;
+    const STEP = 80; // one song per notch, smooth for trackpads
+    while (Math.abs(wheelAcc) >= STEP) {
+      const dir = wheelAcc > 0 ? 1 : -1;
+      wheelAcc -= dir * STEP;
+      stepSelection(dir);
+    }
+  }, { passive: false });
+
+  const onNavKey = (e: KeyboardEvent): void => {
+    const tag = (e.target as HTMLElement).tagName;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+    if (document.querySelector('.modal-back')) return;
+    if (e.code === 'ArrowDown' || e.code === 'ArrowUp') {
+      e.preventDefault();
+      stepSelection(e.code === 'ArrowDown' ? 1 : -1);
+    } else if (e.code === 'Enter') {
+      (detailBox.querySelector('.btn.primary.big') as HTMLButtonElement | null)?.click();
+    } else if (e.code === 'Escape') {
+      ctx.nav('menu');
+    }
+  };
+  window.addEventListener('keydown', onNavKey);
 
   async function selectSong(song: SongData | null): Promise<void> {
     selectedSong = song;
@@ -138,7 +182,7 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
             ctx.nav('play', play);
           },
         }, practice ? 'Practice' : 'Play'),
-        song.id !== DEMO_SONG_ID &&
+        song.id !== DEMO_SONG_ID && !isBundledSong(song.id) &&
           el('button', {
             class: 'btn danger',
             onclick: async () => {
@@ -152,13 +196,54 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
       ),
     );
 
-    // leaderboard
+    // global leaderboard (server-side, shared by everyone)
+    if (selectedChart) {
+      const globalLb = el('div', { class: 'panel' }, el('h3', null, 'Global Leaderboard'), el('div', { class: 'muted' }, 'Loading…'));
+      detailBox.append(globalLb);
+      // if the selection changes mid-fetch, renderDetail() rebuilt detailBox and
+      // this panel is detached — updating it is then a harmless no-op
+      void fetchLeaderboard(ctx.settings, selectedChart.id)
+        .then((scores) => {
+          globalLb.innerHTML = '';
+          globalLb.append(el('h3', null, 'Global Leaderboard'));
+          if (!scores.length) {
+            globalLb.append(el('div', { class: 'muted' }, 'No global scores yet — save a run to set the first record!'));
+            return;
+          }
+          const table = el('table', { class: 'table' },
+            el('tr', null, el('th', null, '#'), el('th', null, 'Player'), el('th', null, 'Score'), el('th', null, 'Acc'), el('th', null, 'Grade'), el('th', null, 'Combo'), el('th', null, 'Date')),
+          );
+          scores.forEach((sc, i) => {
+            table.append(
+              el('tr', null,
+                el('td', null, String(i + 1)),
+                el('td', null, sc.player + (sc.noFail ? ' (NF)' : '') + (sc.failed ? ' ✗' : '')),
+                el('td', null, String(sc.score)),
+                el('td', null, fmtPct(sc.accuracy)),
+                el('td', null, sc.grade),
+                el('td', null, String(sc.maxCombo)),
+                el('td', { class: 'muted' }, new Date(sc.dateIso).toLocaleDateString()),
+              ),
+            );
+          });
+          globalLb.append(table);
+        })
+        .catch(() => {
+          globalLb.innerHTML = '';
+          globalLb.append(
+            el('h3', null, 'Global Leaderboard'),
+            el('div', { class: 'muted' }, 'Server unreachable — global scores are unavailable right now.'),
+          );
+        });
+    }
+
+    // local scores (this device — keeps replays)
     if (selectedChart) {
       const scores = (await ctx.db.scoresForChart(selectedChart.id))
         .filter((x) => x.rate === 1)
         .sort((a, b) => b.score - a.score || b.accuracy - a.accuracy || b.maxCombo - a.maxCombo)
         .slice(0, 10);
-      const lb = el('div', { class: 'panel' }, el('h3', null, 'Leaderboard'));
+      const lb = el('div', { class: 'panel' }, el('h3', null, 'Your Scores (this device)'));
       if (!scores.length) lb.append(el('div', { class: 'muted' }, 'No scores yet — set the first one!'));
       else {
         const table = el('table', { class: 'table' },
@@ -306,8 +391,20 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
 
   void refresh();
 
+  // bundled songs land in the library one by one on first boot — refresh the
+  // list as they arrive, debounced so bulk imports don't thrash the UI
+  let libTimer = 0;
+  const onLibraryChanged = () => {
+    clearTimeout(libTimer);
+    libTimer = window.setTimeout(() => void refresh(selectedSong?.id), 400);
+  };
+  window.addEventListener(LIBRARY_CHANGED_EVENT, onLibraryChanged);
+
   return {
     destroy() {
+      clearTimeout(libTimer);
+      window.removeEventListener(LIBRARY_CHANGED_EVENT, onLibraryChanged);
+      window.removeEventListener('keydown', onNavKey);
       ctx.saveSettings();
       document.querySelectorAll('.modal-back').forEach((n) => n.remove());
     },

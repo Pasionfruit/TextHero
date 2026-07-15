@@ -5,7 +5,7 @@ import { beatToMs, laneCountOf, LETTERS, makeEmptyChart, modeLabel, msToBeat } f
 import { analyzeSong, generateNotes, type SongAnalysis } from '../charts/autochart';
 import { clamp, codeLabel, download, el, fitCanvas, fmtTime, toast } from '../util';
 import { Conductor } from '../engine/Conductor';
-import { laneColor } from '../store/settings';
+import { isLightTheme, laneColor } from '../store/settings';
 import { row, selectInput } from './songselect';
 
 const SNAPS: Record<string, number> = {
@@ -70,7 +70,17 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
   const toolbar2 = el('div', { class: 'editor-toolbar' });
   const canvas = el('canvas', { class: 'editor-canvas' });
   const status = el('div', { class: 'editor-status' });
-  const wrap = el('div', { class: 'editor-wrap' }, toolbar, toolbar2, canvas, status);
+
+  // transport scrubber: jump anywhere in the song while placing notes
+  const scrubPlayBtn = el('button', { class: 'btn sm', title: 'Play/pause (Space)', onclick: () => togglePlay() }, '⏵');
+  const scrubNow = el('span', { class: 'scrub-time' }, '0:00.000');
+  const scrubTotal = el('span', { class: 'scrub-time' }, '–:––');
+  const scrubFill = el('div', { class: 'scrub-fill' });
+  const scrubHandle = el('div', { class: 'scrub-handle' });
+  const scrubTrack = el('div', { class: 'scrub-track' }, scrubFill, scrubHandle);
+  const scrubber = el('div', { class: 'editor-scrubber' }, scrubPlayBtn, scrubNow, scrubTrack, scrubTotal);
+
+  const wrap = el('div', { class: 'editor-wrap' }, toolbar, toolbar2, canvas, scrubber, status);
   root.append(wrap);
 
   const active = (): ChartData | null => charts[activeIdx] ?? null;
@@ -336,6 +346,30 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
     }
   }
 
+  // ---- transport scrubber ----
+  let scrubbing = false;
+  function scrubTo(e: PointerEvent): void {
+    if (!song) return;
+    const r = scrubTrack.getBoundingClientRect();
+    const frac = clamp((e.clientX - r.left) / r.width, 0, 1);
+    const ms = frac * song.durationMs;
+    playheadBeat = clamp(msToBeat(song, ms), 0, totalBeats());
+    if (playing && buffer) conductor.seek(Math.max(0, ms), 60);
+    // fly the timeline to the new position
+    const H = canvas.getBoundingClientRect().height;
+    scrollPx = playheadBeat * pxPerBeat - H / 2;
+  }
+  scrubTrack.addEventListener('pointerdown', (e) => {
+    scrubbing = true;
+    scrubTrack.setPointerCapture(e.pointerId);
+    scrubTo(e);
+  });
+  scrubTrack.addEventListener('pointermove', (e) => {
+    if (scrubbing) scrubTo(e);
+  });
+  scrubTrack.addEventListener('pointerup', () => (scrubbing = false));
+  scrubTrack.addEventListener('pointercancel', () => (scrubbing = false));
+
   // ---- mouse ----
   function canvasPos(e: MouseEvent): { x: number; y: number } {
     const r = canvas.getBoundingClientRect();
@@ -541,8 +575,17 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
     const ctx2 = fitCanvas(canvas);
     const rect = canvas.getBoundingClientRect();
     const W = rect.width, H = rect.height;
+    // timeline palette follows the app theme
+    const light = isLightTheme();
+    const ink = (a: number): string => (light ? `rgba(24,30,50,${a})` : `rgba(255,255,255,${a})`);
+    const PAL = {
+      bg: light ? '#eef0f6' : '#0b0d13',
+      waveBg: light ? '#dfe4ef' : '#1b2230',
+      waveStroke: light ? '#4a7fb5' : '#3f74a3',
+      playhead: light ? '#0d8fb8' : '#59e3ff',
+    };
     ctx2.clearRect(0, 0, W, H);
-    ctx2.fillStyle = '#0b0d13';
+    ctx2.fillStyle = PAL.bg;
     ctx2.fillRect(0, 0, W, H);
     if (!song) return;
 
@@ -560,9 +603,9 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
 
     // waveform
     if (buffer && peaksMin && peaksMax) {
-      ctx2.fillStyle = '#1b2230';
+      ctx2.fillStyle = PAL.waveBg;
       ctx2.fillRect(WAVE_X, 0, WAVE_W, H);
-      ctx2.strokeStyle = '#3f74a3';
+      ctx2.strokeStyle = PAL.waveStroke;
       ctx2.beginPath();
       const sr = buffer.sampleRate;
       for (let y = 0; y < H; y += 2) {
@@ -587,13 +630,13 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
       const y = yOf(b);
       const isBeat = Math.abs(b - Math.round(b)) < 1e-6;
       const isMeasure = isBeat && Math.round(b) % 4 === 0;
-      ctx2.strokeStyle = isMeasure ? 'rgba(255,255,255,0.35)' : isBeat ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.06)';
+      ctx2.strokeStyle = isMeasure ? ink(0.35) : isBeat ? ink(0.16) : ink(0.06);
       ctx2.beginPath();
       ctx2.moveTo(RULER_X, y);
       ctx2.lineTo(lanesEnd, y);
       ctx2.stroke();
       if (isMeasure) {
-        ctx2.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx2.fillStyle = ink(0.5);
         ctx2.fillText(`${Math.round(b) / 4 + 1}`, RULER_X + 2, y - 3);
       }
     }
@@ -602,9 +645,9 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
     const c = active();
     for (let l = 0; l < laneCount(); l++) {
       const x = laneX(l);
-      ctx2.fillStyle = 'rgba(255,255,255,0.03)';
+      ctx2.fillStyle = ink(0.04);
       ctx2.fillRect(x, 0, lw, H);
-      ctx2.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx2.fillStyle = ink(0.55);
       ctx2.textAlign = 'center';
       ctx2.font = 'bold 11px system-ui';
       const label =
@@ -628,7 +671,7 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
       ctx2.fillStyle = color;
       ctx2.fillRect(x + 2, hy - 5, lw - 4, 10);
       if (selection.has(n)) {
-        ctx2.strokeStyle = '#fff';
+        ctx2.strokeStyle = light ? '#1c202b' : '#fff';
         ctx2.lineWidth = 2;
         ctx2.strokeRect(x + 1, hy - 6, lw - 2, n.durBeats > 0 ? ty - hy + 12 : 12);
       }
@@ -646,18 +689,26 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
 
     // playhead
     const py = yOf(playheadBeat);
-    ctx2.strokeStyle = '#59e3ff';
+    ctx2.strokeStyle = PAL.playhead;
     ctx2.lineWidth = 2;
     ctx2.beginPath();
     ctx2.moveTo(WAVE_X, py);
     ctx2.lineTo(lanesEnd + 10, py);
     ctx2.stroke();
-    ctx2.fillStyle = '#59e3ff';
+    ctx2.fillStyle = PAL.playhead;
     ctx2.beginPath();
     ctx2.moveTo(WAVE_X, py - 5);
     ctx2.lineTo(WAVE_X + 8, py);
     ctx2.lineTo(WAVE_X, py + 5);
     ctx2.fill();
+
+    // transport scrubber
+    const posMs = clamp(beatToMs(song, playheadBeat), 0, song.durationMs);
+    const frac = song.durationMs > 0 ? posMs / song.durationMs : 0;
+    scrubFill.style.width = `${frac * 100}%`;
+    scrubHandle.style.left = `${frac * 100}%`;
+    scrubNow.textContent = fmtTime(posMs);
+    scrubPlayBtn.textContent = playing ? '⏸' : '⏵';
 
     status.textContent = `${fmtTime(beatToMs(song, playheadBeat))} · beat ${playheadBeat.toFixed(2)} · ${notes.length} notes · ${selection.size} selected — click: place · drag down: hold · right-click: delete · shift-drag: box select · ctrl+C/V copy/paste · ctrl+Z undo · space: play · F5: test`;
   }
@@ -687,6 +738,7 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
     notes = charts[activeIdx].notes;
     renderToolbars();
     scrollToPlayhead();
+    scrubTotal.textContent = fmtTime(song.durationMs);
 
     try {
       await ctx.audio.ensureRunning();

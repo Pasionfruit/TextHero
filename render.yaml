@@ -11,3 +11,13 @@ services:
     buildCommand: npm install --include=dev && npm run build
     startCommand: node server/server.mjs
     healthCheckPath: /
+    # The global leaderboard lives in a SQLite file (DATA_DIR/leaderboard.db).
+    # Free-tier disks are ephemeral: scores reset on every deploy. To persist
+    # them, upgrade to a paid instance and uncomment:
+    # disk:
+    #   name: texthero-data
+    #   mountPath: /var/data
+    #   sizeGB: 1
+    # envVars:
+    #   - key: DATA_DIR
+    #     value: /var/data

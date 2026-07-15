@@ -396,6 +396,7 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
     }));
 
     let replaySavedId: string | null = null;
+    let scoreSavedId: string | null = null;
     const eligible = players.length === 1 && !params.practice && !params.test;
     if (eligible) {
       const sess = sessions[0];
@@ -435,6 +436,7 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
         await ctx.db.put('replays', rep);
         await ctx.db.put('scores', score);
         replaySavedId = rep.id;
+        scoreSavedId = score.id;
       } catch {
         toast('Could not save score');
       }
@@ -454,6 +456,7 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
       players: results,
       band: bandState ? { score: bandState.score, maxCombo: bandState.maxCombo, failed: bandState.failed } : null,
       replaySavedId,
+      scoreSavedId,
       online: !!params.online,
       practice: params.practice,
       test: params.test ?? null,

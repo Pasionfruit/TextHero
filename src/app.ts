@@ -60,6 +60,8 @@ export interface ResultsParams {
   players: PlayerResult[];
   band: { score: number; maxCombo: number; failed: boolean } | null;
   replaySavedId: string | null;
+  /** local ScoreRecord id auto-saved after an eligible run; lets Results rename or discard it */
+  scoreSavedId: string | null;
   online: boolean;
   practice: boolean;
   test: { fromMs: number; resume: any } | null;

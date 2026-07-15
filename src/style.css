@@ -1,30 +1,76 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* ---- theme ---- */
 :root {
   --bg: #0a0b0e;
-  --surface: #13151b;
-  --surface2: #1a1d26;
+  --bg-glow: #14171f;
+  --shell: #101218;          /* page container */
+  --surface: #13151b;        /* panels, toolbars */
+  --surface2: #1a1d26;       /* buttons, nested surfaces */
+  --btn-hover: #242836;
+  --input-bg: #0c0e13;
   --text: #edeff4;
   --muted: #7d8494;
-  --accent: #ffb037;      /* GH amber */
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --accent: #ffb037;         /* GH amber */
+  --accent-hover: #ffc060;
   --accent-dim: #b97d1e;
+  --on-accent: #17130a;
   --danger: #e5484d;
   --ok: #43d675;
+  --overlay: rgba(4, 5, 8, 0.78);
+  --shadow: 0 14px 44px rgba(0, 0, 0, 0.45);
+  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.3);
   --radius: 12px;
+}
+
+:root[data-theme='light'] {
+  --bg: #e9ebf1;
+  --bg-glow: #f9fafc;
+  --shell: #f6f7fa;
+  --surface: #ffffff;
+  --surface2: #edeff5;
+  --btn-hover: #e0e4ee;
+  --input-bg: #f2f3f8;
+  --text: #1c202b;
+  --muted: #5f6675;
+  --border: rgba(22, 28, 48, 0.1);
+  --border-strong: rgba(22, 28, 48, 0.2);
+  --accent: #e08a00;
+  --accent-hover: #c97b00;
+  --accent-dim: #a86800;
+  --on-accent: #ffffff;
+  --danger: #d6373c;
+  --ok: #1e9e53;
+  --overlay: rgba(10, 12, 20, 0.55);
+  --shadow: 0 14px 40px rgba(30, 40, 70, 0.14);
+  --shadow-sm: 0 2px 8px rgba(30, 40, 70, 0.1);
 }
 
 html, body { height: 100%; }
 body {
-  background: radial-gradient(ellipse 120% 90% at 50% -10%, #14171f 0%, var(--bg) 55%);
+  background: radial-gradient(ellipse 120% 90% at 50% -10%, var(--bg-glow) 0%, var(--bg) 55%);
   color: var(--text);
   font-family: system-ui, sans-serif;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.15s, color 0.15s;
 }
 
 #app { min-height: 100vh; display: flex; flex-direction: column; }
 
-.page { max-width: 880px; margin: 0 auto; padding: 28px 20px 72px; width: 100%; }
+/* pages sit in a defined, elevated container over the backdrop */
+.page {
+  max-width: 880px;
+  margin: 26px auto 56px;
+  padding: 26px 30px 36px;
+  width: calc(100% - 32px);
+  background: var(--shell);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+}
 .page.wide { max-width: 1180px; }
 .page-title { font-size: 20px; font-weight: 800; letter-spacing: 3px; text-transform: uppercase; }
 .muted { color: var(--muted); }
@@ -36,9 +82,11 @@ body {
 
 .panel {
   background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 18px 20px;
   margin: 14px 0;
+  box-shadow: var(--shadow-sm);
 }
 .panel h2 { margin-bottom: 10px; font-size: 17px; }
 .panel h3, .panel summary {
@@ -57,31 +105,33 @@ details.panel[open] summary::before { content: '▾ '; }
 .btn {
   background: var(--surface2);
   color: var(--text);
-  border: none;
+  border: 1px solid var(--border);
   border-radius: 8px;
   padding: 9px 18px;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.12s, transform 0.05s, color 0.12s;
+  transition: background 0.12s, transform 0.05s, color 0.12s, border-color 0.12s;
 }
-.btn:hover { background: #242836; }
+.btn:hover { background: var(--btn-hover); }
 .btn:active { transform: scale(0.97); }
 .btn:disabled { opacity: 0.35; cursor: default; }
-.btn.primary { background: var(--accent); color: #17130a; }
-.btn.primary:hover { background: #ffc060; }
-.btn.danger { background: transparent; color: var(--danger); box-shadow: inset 0 0 0 1px rgba(229,72,77,0.4); }
-.btn.danger:hover { background: rgba(229,72,77,0.1); }
+.btn.primary { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+.btn.primary:hover { background: var(--accent-hover); }
+.btn.danger { background: transparent; color: var(--danger); border-color: transparent; box-shadow: inset 0 0 0 1px rgba(229, 72, 77, 0.4); }
+.btn.danger:hover { background: rgba(229, 72, 77, 0.1); }
 .btn.big { font-size: 15px; padding: 13px 30px; letter-spacing: 1px; }
 .btn.sm { font-size: 12px; padding: 5px 11px; }
 .btn-row { display: flex; gap: 10px; margin: 16px 0; flex-wrap: wrap; align-items: center; }
 .key-btn { min-width: 52px; font-family: ui-monospace, monospace; }
 .key-btn.capturing { color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 
+.theme-toggle { position: fixed; top: 14px; right: 16px; z-index: 50; }
+
 input, select {
-  background: #0c0e13;
+  background: var(--input-bg);
   color: var(--text);
-  border: 1px solid rgba(255,255,255,0.09);
+  border: 1px solid var(--border);
   border-radius: 7px;
   padding: 7px 9px;
   font-size: 13px;
@@ -94,20 +144,20 @@ input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent);
 .form-row > label { min-width: 168px; color: var(--muted); font-size: 13px; }
 
 .table { border-collapse: collapse; width: 100%; font-size: 13px; }
-.table th { text-align: left; color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; padding: 5px 8px; border-bottom: 1px solid rgba(255,255,255,0.08); }
-.table td { padding: 5px 8px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+.table th { text-align: left; color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; padding: 5px 8px; border-bottom: 1px solid var(--border-strong); }
+.table td { padding: 5px 8px; border-bottom: 1px solid var(--border); }
 .table tr.winner td { color: var(--accent); }
 
 .chip-row { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0; }
 .chip-row.inline { display: inline-flex; margin: 0; }
 .chip {
   background: transparent; color: var(--muted);
-  border: 1px solid rgba(255,255,255,0.12); border-radius: 999px;
+  border: 1px solid var(--border-strong); border-radius: 999px;
   padding: 5px 13px; font-size: 12px; font-weight: 600; cursor: pointer;
   transition: all 0.12s;
 }
-.chip:hover { color: var(--text); border-color: rgba(255,255,255,0.3); }
-.chip.active { color: #17130a; border-color: var(--accent); background: var(--accent); }
+.chip:hover { color: var(--text); border-color: var(--accent-dim); }
+.chip.active { color: var(--on-accent); border-color: var(--accent); background: var(--accent); }
 
 /* ---- menu (GH-style vertical list) ---- */
 .menu-page { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 40px 16px; }
@@ -129,10 +179,10 @@ input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent);
 /* ---- song select ---- */
 .select-cols { display: grid; grid-template-columns: 290px 1fr; gap: 18px; }
 @media (max-width: 800px) { .select-cols { grid-template-columns: 1fr; } }
-.song-list { display: flex; flex-direction: column; gap: 6px; max-height: 76vh; overflow-y: auto; padding-right: 4px; }
+.song-list { display: flex; flex-direction: column; gap: 6px; max-height: 72vh; overflow-y: auto; padding-right: 4px; overscroll-behavior: contain; }
 .song-card {
   display: flex; gap: 12px; align-items: center;
-  background: var(--surface); border-radius: 10px; padding: 10px 12px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px;
   cursor: pointer; border-left: 3px solid transparent;
   transition: background 0.12s, border-color 0.12s;
 }
@@ -141,24 +191,25 @@ input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent);
 .song-title { font-weight: 700; font-size: 14px; }
 .song-art { width: 42px; height: 42px; border-radius: 8px; object-fit: cover; }
 .song-art.placeholder { display: flex; align-items: center; justify-content: center; background: var(--surface2); color: var(--muted); font-size: 18px; }
+.wheel-hint { text-align: center; margin-top: 6px; }
 
-/* ---- gameplay ---- */
+/* ---- gameplay (always dark: it's the stage) ---- */
 .play-wrap { position: fixed; inset: 0; background: #060709; }
 .play-fields { display: flex; height: 100%; gap: 2px; }
 .play-field { flex: 1; position: relative; min-width: 0; }
 .play-field canvas { width: 100%; height: 100%; display: block; }
 .play-overlay {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  background: rgba(4,5,8,0.78); z-index: 10;
+  background: var(--overlay); z-index: 10;
 }
 .play-overlay.hide { display: none; }
 .pause-panel { display: flex; flex-direction: column; gap: 10px; min-width: 240px; text-align: center; }
 .play-topbar { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 5; }
-.replay-bar { display: flex; gap: 8px; align-items: center; background: rgba(19,21,27,0.92); border-radius: 10px; padding: 6px 14px; }
+.replay-bar { display: flex; gap: 8px; align-items: center; background: rgba(19, 21, 27, 0.92); border-radius: 10px; padding: 6px 14px; }
 .play-leaderboard {
   position: absolute; top: 64px; right: 12px; z-index: 5;
-  background: rgba(19,21,27,0.88); border-radius: 10px; padding: 10px 14px; font-size: 12px;
-  min-width: 210px;
+  background: rgba(19, 21, 27, 0.88); border-radius: 10px; padding: 10px 14px; font-size: 12px;
+  min-width: 210px; color: #edeff4;
 }
 .play-leaderboard.hide { display: none; }
 .lb-title { color: var(--accent); font-size: 9px; font-weight: 700; letter-spacing: 3px; margin-bottom: 5px; }
@@ -179,19 +230,62 @@ input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent);
 .editor-toolbar {
   display: flex; gap: 6px; align-items: center; flex-wrap: wrap;
   padding: 7px 12px; background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
-.editor-toolbar + .editor-toolbar { border-top: 1px solid rgba(255,255,255,0.05); }
-.editor-toolbar .sep { width: 1px; height: 20px; background: rgba(255,255,255,0.12); margin: 0 5px; }
-.editor-canvas { flex: 1; width: 100%; cursor: crosshair; }
+.editor-toolbar .sep { width: 1px; height: 20px; background: var(--border-strong); margin: 0 5px; }
+/* min-height:0 lets the canvas shrink below its intrinsic (attribute) size —
+   without it the fitCanvas feedback loop ratchets the canvas taller and pushes
+   the scrubber/status bar off-screen */
+.editor-canvas { flex: 1 1 0; min-height: 0; width: 100%; cursor: crosshair; }
 .editor-status {
   padding: 6px 12px; font-size: 11px; color: var(--muted);
   background: var(--surface);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  flex-shrink: 0;
 }
+
+/* transport scrubber under the timeline */
+.editor-scrubber {
+  display: flex; align-items: center; gap: 12px;
+  padding: 9px 14px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.scrub-time {
+  font-size: 11px; color: var(--muted);
+  font-variant-numeric: tabular-nums; font-family: ui-monospace, monospace;
+  min-width: 66px; text-align: center;
+}
+.scrub-track {
+  position: relative; flex: 1; height: 8px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  touch-action: none;
+}
+.scrub-track::before { content: ''; position: absolute; inset: -8px 0; } /* bigger hit area */
+.scrub-fill {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 0;
+  background: var(--accent); border-radius: 999px;
+}
+.scrub-handle {
+  position: absolute; top: 50%; left: 0;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--shell);
+  transform: translate(-50%, -50%);
+  box-shadow: var(--shadow-sm);
+  pointer-events: none;
+  transition: transform 0.1s;
+}
+.scrub-track:hover .scrub-handle { transform: translate(-50%, -50%) scale(1.2); }
 
 /* ---- modal / toasts ---- */
 .modal-back {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+  position: fixed; inset: 0; background: var(--overlay);
   display: flex; align-items: center; justify-content: center; z-index: 100;
 }
 .modal { min-width: 340px; max-width: 90vw; }
@@ -199,8 +293,10 @@ input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent);
 #toasts { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 200; display: flex; flex-direction: column; gap: 8px; align-items: center; }
 .toast {
   background: var(--surface2); color: var(--text);
+  border: 1px solid var(--border);
   border-left: 3px solid var(--accent);
   border-radius: 8px; padding: 9px 20px; font-size: 13px;
+  box-shadow: var(--shadow-sm);
   opacity: 0; transition: opacity 0.3s, transform 0.3s; transform: translateY(8px);
 }
 .toast.show { opacity: 1; transform: translateY(0); }

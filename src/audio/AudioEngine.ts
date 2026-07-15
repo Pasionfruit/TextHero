@@ -38,16 +38,20 @@ export class AudioEngine {
   }
 
   async bufferForSong(song: SongData, db: DB): Promise<AudioBuffer> {
-    const cacheKey = song.audioId ?? '__demo__';
+    const cacheKey = song.audioId ?? song.audioUrl ?? '__demo__';
     const cached = this.bufferCache.get(cacheKey);
     if (cached) return cached;
     let buf: AudioBuffer;
-    if (!song.audioId) {
-      buf = await renderDemoSong();
-    } else {
+    if (song.audioId) {
       const blob = await db.get<Blob>('audio', song.audioId);
       if (!blob) throw new Error('Audio file missing from library');
       buf = await this.decodeBlob(blob);
+    } else if (song.audioUrl) {
+      const res = await fetch(song.audioUrl);
+      if (!res.ok) throw new Error(`Could not fetch bundled audio (${res.status})`);
+      buf = await this.ctx.decodeAudioData(await res.arrayBuffer());
+    } else {
+      buf = await renderDemoSong();
     }
     this.bufferCache.set(cacheKey, buf);
     return buf;

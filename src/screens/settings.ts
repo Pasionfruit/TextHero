@@ -1,5 +1,5 @@
 import type { AppCtx, Screen } from '../app';
-import { DEFAULT_SETTINGS } from '../store/settings';
+import { applyTheme, DEFAULT_SETTINGS } from '../store/settings';
 import { codeLabel, el, toast } from '../util';
 import { checkbox, numInput, row, selectInput } from './songselect';
 
@@ -71,6 +71,10 @@ export function settingsScreen(root: HTMLElement, ctx: AppCtx, _params: any): Sc
 
     page.append(el('div', { class: 'panel' },
       el('h3', null, 'Visuals'),
+      row('Theme', selectInput(['dark', 'light'], s.theme, (v) => {
+        s.theme = v as 'dark' | 'light';
+        applyTheme(s);
+      })),
       row('Note skin', selectInput(['gems', 'bars', 'circles', 'arrows'], s.noteSkin, (v) => (s.noteSkin = v as any))),
       colors,
       row('Scroll speed', numInput(s.scrollSpeed, 0.25, 4, 0.25, (v) => (s.scrollSpeed = v))),
@@ -113,6 +117,7 @@ export function settingsScreen(root: HTMLElement, ctx: AppCtx, _params: any): Sc
           onclick: () => {
             Object.assign(s, structuredClone(DEFAULT_SETTINGS));
             ctx.saveSettings();
+            applyTheme(s);
             render();
             toast('Settings reset');
           },

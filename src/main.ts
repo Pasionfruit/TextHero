@@ -3,7 +3,9 @@ import { AudioEngine } from './audio/AudioEngine';
 import { buildDemoCharts, demoSongData } from './charts/chart';
 import { NetClient } from './net/NetClient';
 import { DB } from './store/db';
-import { loadSettings, saveSettings } from './store/settings';
+import { importBundledSongs, libraryChanged } from './store/bundled';
+import { applyTheme, loadSettings, saveSettings } from './store/settings';
+import { toast } from './util';
 import { menuScreen } from './screens/menu';
 import { songSelectScreen } from './screens/songselect';
 import { playScreen } from './screens/play';
@@ -26,6 +28,7 @@ async function boot(): Promise<void> {
   const root = document.getElementById('app')!;
   const db = await DB.open();
   const settings = loadSettings();
+  applyTheme(settings);
   const audio = new AudioEngine();
   const net = new NetClient();
 
@@ -37,6 +40,12 @@ async function boot(): Promise<void> {
     if (!(await db.get('charts', chart.id))) await db.put('charts', chart);
   }
 
+  // import bundled mp3s (src/audio) in the background; songs appear in the
+  // library one by one as each finishes decoding + auto-charting
+  void importBundledSongs(db, audio, () => libraryChanged()).then((n) => {
+    if (n > 0) toast(`${n} bundled song${n === 1 ? '' : 's'} added to the library`);
+  });
+
   let current: Screen | null = null;
   const ctx: AppCtx = {
     db,
@@ -47,6 +56,7 @@ async function boot(): Promise<void> {
     nav(screen: ScreenName, params: any = {}) {
       current?.destroy();
       document.body.style.fontFamily = settings.fontFamily;
+      applyTheme(settings);
       current = SCREENS[screen](root, ctx, params);
     },
   };

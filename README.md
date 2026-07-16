@@ -25,6 +25,16 @@ Requires **Node ≥ 22.13** (the leaderboard uses the built-in `node:sqlite` mod
 2. On [render.com](https://render.com): **New → Blueprint**, select this repo, **Apply**. (Or **New → Web Service** manually: build command `npm install --include=dev && npm run build`, start command `node server/server.mjs`.)
 3. Open the service URL. Done — the client automatically connects multiplayer to its own host over `wss://`, so online lobbies work out of the box.
 
+### Making the global leaderboard durable
+
+The server stores global scores in SQLite on local disk by default — but **Render's free tier has an ephemeral filesystem**, so that file is wiped on every deploy and every idle spin-down, and the leaderboard silently resets. To make scores permanent, point the server at any Postgres database via a single env var:
+
+1. Create a free Postgres database — [neon.tech](https://neon.tech) has a durable free tier (no card required). Copy its connection string (`postgres://user:pass@host/db?sslmode=require`).
+2. In the Render dashboard: your service → **Environment** → add `DATABASE_URL` = that connection string → save (Render redeploys automatically).
+3. Check the deploy logs for `Leaderboard store: Postgres (durable)` — from then on scores survive deploys, restarts, and spin-downs, and every machine sees the same board.
+
+Also set `ADMIN_USER` / `ADMIN_PASS` env vars there to override the admin-login defaults, which are visible to anyone reading this public repo.
+
 Notes:
 - The **free plan spins down** after ~15 min of inactivity; the first visit afterwards takes up to a minute to wake.
 - Songs, charts, and replays live in each player's **browser (IndexedDB)**; uploaded songs are shared to lobby members over the WebSocket at play time.

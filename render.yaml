@@ -11,9 +11,17 @@ services:
     buildCommand: npm install --include=dev && npm run build
     startCommand: node server/server.mjs
     healthCheckPath: /
-    # The global leaderboard lives in a SQLite file (DATA_DIR/leaderboard.db).
-    # Free-tier disks are ephemeral: scores reset on every deploy. To persist
-    # them, upgrade to a paid instance and uncomment:
+    # -- Global leaderboard persistence --------------------------------------
+    # Free-tier filesystems are EPHEMERAL: the local SQLite fallback resets on
+    # every deploy and idle spin-down. To make the leaderboard durable (free):
+    #   1. Create a free Postgres database (e.g. https://neon.tech)
+    #   2. Render dashboard -> texthero -> Environment -> add DATABASE_URL
+    #      with the database's connection string
+    # The server auto-detects DATABASE_URL and switches from SQLite to Postgres.
+    # While you're there, also set ADMIN_USER / ADMIN_PASS to replace the
+    # defaults that are visible in this public repo.
+    #
+    # Alternative (paid instance): keep SQLite on a mounted disk instead:
     # disk:
     #   name: texthero-data
     #   mountPath: /var/data

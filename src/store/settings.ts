@@ -97,6 +97,15 @@ export function loadSettings(): Settings {
       windows: { ...DEFAULT_SETTINGS.windows },
     };
     s.volume = Number.isFinite(Number(parsed.volume)) ? Math.min(1, Math.max(0, Number(parsed.volume))) : DEFAULT_SETTINGS.volume;
+    // a saved localhost server URL on a deployed origin would silently send
+    // scores/lobbies to the player's own machine — never let that stick
+    if (
+      typeof location !== 'undefined' &&
+      !['localhost', '127.0.0.1'].includes(location.hostname) &&
+      /^wss?:\/\/(localhost|127\.0\.0\.1)/i.test(s.serverUrl)
+    ) {
+      s.serverUrl = DEFAULT_SETTINGS.serverUrl;
+    }
     return s;
   } catch {
     return structuredClone(DEFAULT_SETTINGS);

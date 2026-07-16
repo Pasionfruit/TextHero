@@ -23,58 +23,183 @@ const DIST = join(ROOT, 'dist');
 const DATA_DIR = process.env.DATA_DIR || join(ROOT, 'data');
 
 // ---- leaderboard store ----
-mkdirSync(DATA_DIR, { recursive: true });
-const db = new DatabaseSync(join(DATA_DIR, 'leaderboard.db'));
-db.exec(`
-  PRAGMA journal_mode = WAL;
-  CREATE TABLE IF NOT EXISTS scores (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    chart_id   TEXT NOT NULL,
-    song_id    TEXT NOT NULL DEFAULT '',
-    title      TEXT NOT NULL DEFAULT '',
-    artist     TEXT NOT NULL DEFAULT '',
-    mode       TEXT NOT NULL DEFAULT '',
-    difficulty TEXT NOT NULL DEFAULT '',
-    player     TEXT NOT NULL,
-    score      INTEGER NOT NULL,
-    accuracy   REAL NOT NULL,
-    grade      TEXT NOT NULL,
-    max_combo  INTEGER NOT NULL,
-    no_fail    INTEGER NOT NULL DEFAULT 0,
-    failed     INTEGER NOT NULL DEFAULT 0,
-    date_iso   TEXT NOT NULL,
-    UNIQUE (chart_id, player)
-  );
-  CREATE INDEX IF NOT EXISTS idx_scores_chart ON scores (chart_id, score DESC);
-`);
+// Two backends behind one async interface:
+//  * Postgres — used when DATABASE_URL is set. This is what makes the global
+//    leaderboard DURABLE on hosts with ephemeral filesystems (Render free
+//    tier wipes local files on every deploy and idle spin-down). Any Postgres
+//    works — e.g. a free Neon (neon.tech) database.
+//  * SQLite  — zero-config fallback for local dev / hosts with real disks.
 
-const stmtTop = db.prepare(
-  `SELECT id, player, score, accuracy, grade, max_combo AS maxCombo, no_fail AS noFail, failed, date_iso AS dateIso
-   FROM scores WHERE chart_id = ?
-   ORDER BY score DESC, accuracy DESC, max_combo DESC, date_iso ASC LIMIT ?`,
-);
-const stmtGet = db.prepare('SELECT score, accuracy, max_combo FROM scores WHERE chart_id = ? AND player = ?');
-const stmtUpsert = db.prepare(
-  `INSERT INTO scores (chart_id, song_id, title, artist, mode, difficulty, player, score, accuracy, grade, max_combo, no_fail, failed, date_iso)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-   ON CONFLICT (chart_id, player) DO UPDATE SET
-     song_id = excluded.song_id, title = excluded.title, artist = excluded.artist,
-     mode = excluded.mode, difficulty = excluded.difficulty, score = excluded.score,
-     accuracy = excluded.accuracy, grade = excluded.grade, max_combo = excluded.max_combo,
-     no_fail = excluded.no_fail, failed = excluded.failed, date_iso = excluded.date_iso`,
-);
-const stmtRank = db.prepare(
-  `SELECT COUNT(*) AS above FROM scores WHERE chart_id = ?
-   AND (score > ? OR (score = ? AND accuracy > ?) OR (score = ? AND accuracy = ? AND max_combo > ?))`,
-);
-const stmtTotal = db.prepare('SELECT COUNT(*) AS total FROM scores WHERE chart_id = ?');
-const stmtDelete = db.prepare('DELETE FROM scores WHERE id = ?');
-const stmtAdminUpdate = db.prepare(
-  `UPDATE scores SET
-     player = COALESCE(?, player), score = COALESCE(?, score), accuracy = COALESCE(?, accuracy),
-     grade = COALESCE(?, grade), max_combo = COALESCE(?, max_combo)
-   WHERE id = ?`,
-);
+function makeSqliteStore() {
+  mkdirSync(DATA_DIR, { recursive: true });
+  const db = new DatabaseSync(join(DATA_DIR, 'leaderboard.db'));
+  db.exec(`
+    PRAGMA journal_mode = WAL;
+    CREATE TABLE IF NOT EXISTS scores (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      chart_id   TEXT NOT NULL,
+      song_id    TEXT NOT NULL DEFAULT '',
+      title      TEXT NOT NULL DEFAULT '',
+      artist     TEXT NOT NULL DEFAULT '',
+      mode       TEXT NOT NULL DEFAULT '',
+      difficulty TEXT NOT NULL DEFAULT '',
+      player     TEXT NOT NULL,
+      score      INTEGER NOT NULL,
+      accuracy   REAL NOT NULL,
+      grade      TEXT NOT NULL,
+      max_combo  INTEGER NOT NULL,
+      no_fail    INTEGER NOT NULL DEFAULT 0,
+      failed     INTEGER NOT NULL DEFAULT 0,
+      date_iso   TEXT NOT NULL,
+      UNIQUE (chart_id, player)
+    );
+    CREATE INDEX IF NOT EXISTS idx_scores_chart ON scores (chart_id, score DESC);
+  `);
+  const stmtTop = db.prepare(
+    `SELECT id, player, score, accuracy, grade, max_combo AS maxCombo, no_fail AS noFail, failed, date_iso AS dateIso
+     FROM scores WHERE chart_id = ?
+     ORDER BY score DESC, accuracy DESC, max_combo DESC, date_iso ASC LIMIT ?`,
+  );
+  const stmtGet = db.prepare('SELECT score, accuracy, max_combo FROM scores WHERE chart_id = ? AND player = ?');
+  const stmtUpsert = db.prepare(
+    `INSERT INTO scores (chart_id, song_id, title, artist, mode, difficulty, player, score, accuracy, grade, max_combo, no_fail, failed, date_iso)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (chart_id, player) DO UPDATE SET
+       song_id = excluded.song_id, title = excluded.title, artist = excluded.artist,
+       mode = excluded.mode, difficulty = excluded.difficulty, score = excluded.score,
+       accuracy = excluded.accuracy, grade = excluded.grade, max_combo = excluded.max_combo,
+       no_fail = excluded.no_fail, failed = excluded.failed, date_iso = excluded.date_iso`,
+  );
+  const stmtRank = db.prepare(
+    `SELECT COUNT(*) AS above FROM scores WHERE chart_id = ?
+     AND (score > ? OR (score = ? AND accuracy > ?) OR (score = ? AND accuracy = ? AND max_combo > ?))`,
+  );
+  const stmtTotal = db.prepare('SELECT COUNT(*) AS total FROM scores WHERE chart_id = ?');
+  const stmtDelete = db.prepare('DELETE FROM scores WHERE id = ?');
+  const stmtAdminUpdate = db.prepare(
+    `UPDATE scores SET
+       player = COALESCE(?, player), score = COALESCE(?, score), accuracy = COALESCE(?, accuracy),
+       grade = COALESCE(?, grade), max_combo = COALESCE(?, max_combo)
+     WHERE id = ?`,
+  );
+  return {
+    kind: 'sqlite',
+    async top(chartId, limit) {
+      return stmtTop.all(chartId, limit);
+    },
+    async getBest(chartId, player) {
+      return stmtGet.get(chartId, player);
+    },
+    async upsert(r) {
+      stmtUpsert.run(r.chartId, r.songId, r.title, r.artist, r.mode, r.difficulty, r.player,
+        r.score, r.accuracy, r.grade, r.maxCombo, r.noFail, r.failed, r.dateIso);
+    },
+    async rank(chartId, score, accuracy, maxCombo) {
+      const above = stmtRank.get(chartId, score, score, accuracy, score, accuracy, maxCombo).above;
+      const total = stmtTotal.get(chartId).total;
+      return { rank: Number(above) + 1, total: Number(total) };
+    },
+    async remove(id) {
+      return Number(stmtDelete.run(id).changes);
+    },
+    async adminUpdate(id, p) {
+      return Number(stmtAdminUpdate.run(p.player, p.score, p.accuracy, p.grade, p.maxCombo, id).changes);
+    },
+  };
+}
+
+async function makePgStore(url) {
+  const { default: pg } = await import('pg');
+  // hosted Postgres (Neon, Render, Supabase…) requires TLS; local doesn't
+  const ssl = /localhost|127\.0\.0\.1/.test(url) ? undefined : { rejectUnauthorized: false };
+  const pool = new pg.Pool({ connectionString: url, ssl, max: 5 });
+  // INTEGER/DOUBLE columns (not BIGINT) so node-postgres returns numbers, not strings
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS scores (
+      id         SERIAL PRIMARY KEY,
+      chart_id   TEXT NOT NULL,
+      song_id    TEXT NOT NULL DEFAULT '',
+      title      TEXT NOT NULL DEFAULT '',
+      artist     TEXT NOT NULL DEFAULT '',
+      mode       TEXT NOT NULL DEFAULT '',
+      difficulty TEXT NOT NULL DEFAULT '',
+      player     TEXT NOT NULL,
+      score      INTEGER NOT NULL,
+      accuracy   DOUBLE PRECISION NOT NULL,
+      grade      TEXT NOT NULL,
+      max_combo  INTEGER NOT NULL,
+      no_fail    INTEGER NOT NULL DEFAULT 0,
+      failed     INTEGER NOT NULL DEFAULT 0,
+      date_iso   TEXT NOT NULL,
+      UNIQUE (chart_id, player)
+    )`);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_scores_chart ON scores (chart_id, score DESC)');
+  return {
+    kind: 'postgres',
+    async top(chartId, limit) {
+      const r = await pool.query(
+        `SELECT id, player, score, accuracy, grade, max_combo AS "maxCombo", no_fail AS "noFail", failed, date_iso AS "dateIso"
+         FROM scores WHERE chart_id = $1
+         ORDER BY score DESC, accuracy DESC, max_combo DESC, date_iso ASC LIMIT $2`,
+        [chartId, limit],
+      );
+      return r.rows;
+    },
+    async getBest(chartId, player) {
+      const r = await pool.query('SELECT score, accuracy, max_combo FROM scores WHERE chart_id = $1 AND player = $2', [chartId, player]);
+      return r.rows[0];
+    },
+    async upsert(rec) {
+      await pool.query(
+        `INSERT INTO scores (chart_id, song_id, title, artist, mode, difficulty, player, score, accuracy, grade, max_combo, no_fail, failed, date_iso)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+         ON CONFLICT (chart_id, player) DO UPDATE SET
+           song_id = EXCLUDED.song_id, title = EXCLUDED.title, artist = EXCLUDED.artist,
+           mode = EXCLUDED.mode, difficulty = EXCLUDED.difficulty, score = EXCLUDED.score,
+           accuracy = EXCLUDED.accuracy, grade = EXCLUDED.grade, max_combo = EXCLUDED.max_combo,
+           no_fail = EXCLUDED.no_fail, failed = EXCLUDED.failed, date_iso = EXCLUDED.date_iso`,
+        [rec.chartId, rec.songId, rec.title, rec.artist, rec.mode, rec.difficulty, rec.player,
+          rec.score, rec.accuracy, rec.grade, rec.maxCombo, rec.noFail, rec.failed, rec.dateIso],
+      );
+    },
+    async rank(chartId, score, accuracy, maxCombo) {
+      const above = await pool.query(
+        `SELECT COUNT(*)::int AS above FROM scores WHERE chart_id = $1
+         AND (score > $2 OR (score = $2 AND accuracy > $3) OR (score = $2 AND accuracy = $3 AND max_combo > $4))`,
+        [chartId, score, accuracy, maxCombo],
+      );
+      const total = await pool.query('SELECT COUNT(*)::int AS total FROM scores WHERE chart_id = $1', [chartId]);
+      return { rank: above.rows[0].above + 1, total: total.rows[0].total };
+    },
+    async remove(id) {
+      return (await pool.query('DELETE FROM scores WHERE id = $1', [id])).rowCount;
+    },
+    async adminUpdate(id, p) {
+      const r = await pool.query(
+        `UPDATE scores SET
+           player = COALESCE($1, player), score = COALESCE($2, score), accuracy = COALESCE($3, accuracy),
+           grade = COALESCE($4, grade), max_combo = COALESCE($5, max_combo)
+         WHERE id = $6`,
+        [p.player, p.score, p.accuracy, p.grade, p.maxCombo, id],
+      );
+      return r.rowCount;
+    },
+  };
+}
+
+let store;
+if (process.env.DATABASE_URL) {
+  try {
+    store = await makePgStore(process.env.DATABASE_URL);
+    console.log('Leaderboard store: Postgres (durable)');
+  } catch (err) {
+    console.error('Postgres init failed — falling back to SQLite (scores will NOT survive restarts):', err?.message || err);
+    store = makeSqliteStore();
+  }
+} else {
+  store = makeSqliteStore();
+  console.log(`Leaderboard store: SQLite in ${DATA_DIR} — ephemeral on Render's free tier; set DATABASE_URL for a durable board`);
+}
 
 // ---- admin auth ----
 // Credentials live server-side only; override the defaults with env vars.
@@ -133,12 +258,6 @@ function normalizeScore(body) {
   };
 }
 
-function rankOf(chartId, score, accuracy, maxCombo) {
-  const above = stmtRank.get(chartId, score, score, accuracy, score, accuracy, maxCombo).above;
-  const total = stmtTotal.get(chartId).total;
-  return { rank: Number(above) + 1, total: Number(total) };
-}
-
 const API_HEADERS = {
   'content-type': 'application/json',
   'cache-control': 'no-store',
@@ -174,8 +293,8 @@ async function handleApi(req, res, url) {
     const chartId = String(url.searchParams.get('chartId') || '').slice(0, 128);
     if (!chartId) return sendJson(res, 400, { error: 'chartId required' });
     const limit = Math.round(clampNum(url.searchParams.get('limit') ?? 10, 1, 100));
-    const scores = stmtTop.all(chartId, limit).map((r) => ({ ...r, noFail: !!r.noFail, failed: !!r.failed }));
-    return sendJson(res, 200, { scores, total: rankOf(chartId, -1, -1, -1).total });
+    const scores = (await store.top(chartId, limit)).map((r) => ({ ...r, noFail: !!r.noFail, failed: !!r.failed }));
+    return sendJson(res, 200, { scores, total: (await store.rank(chartId, -1, -1, -1)).total });
   }
 
   if (url.pathname === '/api/scores' && req.method === 'POST') {
@@ -189,19 +308,16 @@ async function handleApi(req, res, url) {
     if (!rec) return sendJson(res, 400, { error: 'invalid score payload (failed and non-1x-rate runs are not ranked)' });
 
     // keep each player's best run per chart
-    const existing = stmtGet.get(rec.chartId, rec.player);
+    const existing = await store.getBest(rec.chartId, rec.player);
     const improved =
       !existing ||
       rec.score > existing.score ||
       (rec.score === existing.score &&
         (rec.accuracy > existing.accuracy ||
           (rec.accuracy === existing.accuracy && rec.maxCombo > existing.max_combo)));
-    if (improved) {
-      stmtUpsert.run(rec.chartId, rec.songId, rec.title, rec.artist, rec.mode, rec.difficulty, rec.player,
-        rec.score, rec.accuracy, rec.grade, rec.maxCombo, rec.noFail, rec.failed, rec.dateIso);
-    }
+    if (improved) await store.upsert(rec);
     const best = improved ? rec : { score: Number(existing.score), accuracy: Number(existing.accuracy), maxCombo: Number(existing.max_combo) };
-    return sendJson(res, 200, { ok: true, improved, ...rankOf(rec.chartId, best.score, best.accuracy, best.maxCombo) });
+    return sendJson(res, 200, { ok: true, improved, ...(await store.rank(rec.chartId, best.score, best.accuracy, best.maxCombo)) });
   }
 
   if (url.pathname === '/api/admin/login' && req.method === 'POST') {
@@ -230,8 +346,7 @@ async function handleApi(req, res, url) {
     if (!Number.isFinite(id) || id <= 0) return sendJson(res, 400, { error: 'id required' });
 
     if (req.method === 'DELETE') {
-      const r = stmtDelete.run(id);
-      return sendJson(res, 200, { ok: true, deleted: Number(r.changes) });
+      return sendJson(res, 200, { ok: true, deleted: await store.remove(id) });
     }
 
     let body;
@@ -245,8 +360,7 @@ async function handleApi(req, res, url) {
     const accuracy = body.accuracy !== undefined ? clampNum(body.accuracy, 0, 1) : null;
     const grade = body.grade !== undefined && GRADES.has(body.grade) ? body.grade : null;
     const maxCombo = body.maxCombo !== undefined ? Math.round(clampNum(body.maxCombo, 0, 1e6)) : null;
-    const r = stmtAdminUpdate.run(player, score, accuracy, grade, maxCombo, id);
-    return sendJson(res, 200, { ok: true, updated: Number(r.changes) });
+    return sendJson(res, 200, { ok: true, updated: await store.adminUpdate(id, { player, score, accuracy, grade, maxCombo }) });
   }
 
   return sendJson(res, 404, { error: 'not found' });

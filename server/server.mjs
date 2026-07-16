@@ -474,8 +474,10 @@ wss.on('connection', (ws) => {
         }
         break;
       }
-      case 'progress':
+      case 'progress': {
         if (!room) return;
+        // input events ride along so peers can render this player's gameplay live
+        const events = Array.isArray(msg.events) ? msg.events.slice(0, 400) : undefined;
         for (const p of room.players.values()) {
           if (p.id !== player.id)
             send(p.ws, {
@@ -488,9 +490,11 @@ wss.on('connection', (ws) => {
               multiplier: msg.multiplier,
               health: msg.health,
               done: !!msg.done,
+              events,
             });
         }
         break;
+      }
       case 'finish':
         if (!room) return;
         player.result = {

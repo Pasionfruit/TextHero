@@ -59,6 +59,7 @@ export function demoSongData(): SongData {
     id: DEMO_SONG_ID,
     title: 'Neon Circuit',
     artist: 'TextHero (built-in)',
+    genre: 'Synthwave',
     bpm: DEMO_BPM,
     offsetMs: DEMO_OFFSET_MS,
     audioId: null,

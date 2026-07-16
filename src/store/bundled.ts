@@ -35,7 +35,55 @@ interface BundledFile {
   title: string;
   artist: string;
   url: string;
+  genre?: string;
 }
+
+/** Curated genres for the shipped library, keyed by filename slug. */
+const BUNDLED_GENRES: Record<string, string> = {
+  '6-foot-7-foot-lil-wayne-ft-cory-gunz': 'Hip-Hop',
+  'all-the-small-things-blink-182': 'Pop Punk',
+  'american-idiot-green-day': 'Punk Rock',
+  'blue-bird-ikimono': 'J-Pop',
+  'blue-hundreds-holy-mattress-money': 'Indie Rock',
+  'dancing-in-the-moonlight-jubel-neimy': 'Dance Pop',
+  'dear-maria-count-me-in-all-time-low': 'Pop Punk',
+  'death-of-a-bachelor-panic-at-the-disco': 'Pop Rock',
+  'dynamite-bts': 'K-Pop',
+  'end-of-august-noah-kahan': 'Folk Pop',
+  'feeling-juice-wrld': 'Hip-Hop',
+  'fight-together-namie-amuro': 'J-Pop',
+  'fly-day-china-town-yasuha': 'City Pop',
+  'free-bird-lynyrd-skynyrd': 'Southern Rock',
+  'gives-you-hell-the-all-american-rejects': 'Pop Rock',
+  'go-flow': 'J-Rock',
+  'good-riddance-green-day': 'Acoustic Rock',
+  'hungry-like-the-wolf-duran-duran': 'New Wave',
+  'i-just-might-bruno-mars': 'R&B',
+  'i-took-a-pill-in-ibiza-mike-posner': 'Electropop',
+  'it-never-rains-in-southern-california-albert-hammond': 'Soft Rock',
+  'knock-you-down-keri-hilson-ft-kanye-west-ne-yo': 'R&B',
+  'last-time-jxdn': 'Pop Punk',
+  'love-me-not-ravyn-lenae': 'R&B',
+  'mr-brightside-the-killers': 'Indie Rock',
+  'nobodys-son-sabrina-carpenter': 'Pop',
+  'runaway-u-i-galantis': 'EDM',
+  'silhoutte-kana-boon': 'J-Rock',
+  'smells-like-summer-early-hours': 'Indie Pop',
+  'so-what-jxdn': 'Pop Punk',
+  'stacy-s-mom-fountains-of-wayne': 'Pop Rock',
+  'still-into-you-paramore': 'Pop Rock',
+  'supermassive-black-hole-muse': 'Alt Rock',
+  'take-me-out-franz-ferdinand': 'Indie Rock',
+  'teenagers-my-chemical-romance': 'Emo Rock',
+  'the-middle-jimmy-eat-world': 'Pop Rock',
+  'the-way-life-goes-lil-uzi-vert-ft-nicki-minaj': 'Hip-Hop',
+  'took-her-to-the-o-king-von': 'Hip-Hop',
+  'touches-the-walls-nico': 'J-Rock',
+  'unity-thefatrat': 'EDM',
+  'wake-me-up-when-september-ends-green-day': 'Rock',
+  'welcome-to-new-york-taylor-swift': 'Pop',
+  'welcome-to-the-black-parade-my-chemical-romance': 'Emo Rock',
+};
 
 function parseBundled(path: string, url: string): BundledFile {
   const file = decodeURIComponent(path.split('/').pop()!).replace(/\.mp3$/i, '');
@@ -46,7 +94,7 @@ function parseBundled(path: string, url: string): BundledFile {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
-  return { id: BUNDLED_PREFIX + slug, title, artist, url };
+  return { id: BUNDLED_PREFIX + slug, title, artist, url, genre: BUNDLED_GENRES[slug] };
 }
 
 /**
@@ -62,12 +110,20 @@ export async function importBundledSongs(db: DB, audio: AudioEngine, onImported?
     try {
       const existing = await db.get<SongData>('songs', meta.id);
       if (existing) {
+        let changed = false;
         if (existing.audioUrl !== url) {
           existing.audioUrl = url;
-          await db.put('songs', existing);
+          changed = true;
         }
+        if (!existing.genre && meta.genre) {
+          existing.genre = meta.genre;
+          changed = true;
+        }
+        if (changed) await db.put('songs', existing);
         if ((existing.chartGen ?? 1) < BUNDLED_CHART_GEN) {
           await regenerateCharts(db, audio, existing);
+          onImported?.(existing);
+        } else if (changed) {
           onImported?.(existing);
         }
         continue;
@@ -85,6 +141,7 @@ export async function importBundledSongs(db: DB, audio: AudioEngine, onImported?
         audioId: null,
         audioUrl: url,
         chartGen: BUNDLED_CHART_GEN,
+        genre: meta.genre,
         durationMs: Math.round(buf.duration * 1000),
       };
 

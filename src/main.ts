@@ -36,7 +36,9 @@ async function boot(): Promise<void> {
   // seed the built-in demo song + any missing demo charts (first run, wipe, or new
   // built-in modes added in an update) without clobbering user edits
   const demo = demoSongData();
-  if (!(await db.get('songs', demo.id))) await db.put('songs', demo);
+  const existingDemo = await db.get('songs', demo.id);
+  if (!existingDemo) await db.put('songs', demo);
+  else if (!existingDemo.genre) await db.put('songs', { ...existingDemo, genre: demo.genre });
   for (const chart of buildDemoCharts()) {
     if (!(await db.get('charts', chart.id))) await db.put('charts', chart);
   }

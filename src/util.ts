@@ -26,6 +26,12 @@ export function fmtPct(v: number): string {
   return (v * 100).toFixed(2) + '%';
 }
 
+/** Compact duration, e.g. 3:07. */
+export function fmtDur(ms: number): string {
+  const total = Math.round(ms / 1000);
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
 type Attrs = Record<string, any> | null;
 type Child = Node | string | null | undefined | false;
 

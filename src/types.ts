@@ -78,6 +78,7 @@ export interface SongData {
   audioUrl?: string;
   /** bundled songs: auto-chart generator version used; bumping regenerates charts */
   chartGen?: number;
+  genre?: string;
   artDataUrl?: string;
   durationMs: number;
 }

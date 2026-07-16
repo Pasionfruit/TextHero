@@ -41,6 +41,7 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
   let loopStartMs = params.practice ? params.loopStartMs ?? null : null;
   let loopEndMs = params.practice ? params.loopEndMs ?? null : null;
   let lastProgressSent = 0;
+  let sentEventCursor = 0;
   const onlineOthers = new Map<string, any>();
   let netOff: Array<() => void> = [];
 
@@ -57,18 +58,15 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
   wrap.append(lbBox);
   root.append(wrap);
 
+  const labelsFor = (codes?: string[]): string[] =>
+    chart.mode === 'keyboard' ? chart.keys : chart.mode === 'letters' ? [] : (codes ?? s.bindings[0]).map(codeLabel);
+
   for (let i = 0; i < players.length; i++) {
     const holder = el('div', { class: 'play-field' });
     const canvas = el('canvas');
     holder.append(canvas);
     fieldRow.append(holder);
-    const pLabels =
-      chart.mode === 'keyboard'
-        ? chart.keys
-        : chart.mode === 'letters'
-          ? []
-          : (players[i].codes ?? s.bindings[i] ?? s.bindings[0]).map(codeLabel);
-    playfields.push(new Playfield(canvas, { mode: chart.mode, laneCount, labels: pLabels }, s));
+    playfields.push(new Playfield(canvas, { mode: chart.mode, laneCount, labels: labelsFor(players[i].codes ?? s.bindings[i]) }, s));
   }
 
   const buildSessions = () => {
@@ -272,12 +270,63 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
     conductor.seek(toMs, 350);
   }
 
-  // ---- online ----
+  // ---- online: live view of the other players' gameplay ----
+  // Their inputs stream in with the progress messages; the deterministic
+  // judging engine replays them into a playfield rendered beside ours. The
+  // remote view runs slightly behind real time to absorb network latency.
+  const REMOTE_VIEW_DELAY = 500;
+  interface RemoteView {
+    name: string;
+    session: GameSession;
+    playfield: Playfield;
+    queue: ReplayEventRec[];
+    cursor: number;
+  }
+  const remotes = new Map<string, RemoteView>();
+
+  function remoteFor(id: string, name: string): RemoteView {
+    let r = remotes.get(id);
+    if (r) return r;
+    const holder = el('div', { class: 'play-field remote' });
+    const canvas = el('canvas');
+    holder.append(canvas, el('div', { class: 'remote-tag' }, name));
+    fieldRow.append(holder);
+    const playfield = new Playfield(canvas, { mode: chart.mode, laneCount, labels: labelsFor() }, s);
+    const session = new GameSession({
+      notes: compileNotes(song, chart),
+      laneCount,
+      windows: { ...s.windows },
+      noFail: false,
+      ownHealth: true,
+      onEvent: (ev) => {
+        if (ev.type === 'hit') {
+          playfield.setJudgment(ev.judgment!);
+          playfield.burst(ev.lane);
+        } else if (ev.type === 'miss') {
+          playfield.setJudgment('miss');
+        } else if (ev.type === 'holdDrop') {
+          playfield.setJudgment('bad');
+        }
+      },
+    });
+    r = { name, session, playfield, queue: [], cursor: 0 };
+    remotes.set(id, r);
+    return r;
+  }
+
   if (params.online && ctx.net.isConnected()) {
     lbBox.classList.remove('hide');
     netOff.push(
       ctx.net.on('progress', (m) => {
         onlineOthers.set(m.playerId, m);
+        if (!isReplay && m.name) {
+          const r = remoteFor(m.playerId, m.name);
+          if (Array.isArray(m.events)) {
+            for (const e of m.events) {
+              if (e && typeof e.t === 'number' && typeof e.lane === 'number') r.queue.push({ t: e.t, lane: e.lane | 0, down: !!e.down });
+            }
+          }
+        }
         renderLeaderboard();
       }),
     );
@@ -345,7 +394,7 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
         conductor.seek(to, 800);
       }
 
-      // online progress
+      // online progress + our new input events for the remote views
       if (params.online && ctx.net.isConnected() && t - lastProgressSent > 250) {
         lastProgressSent = t;
         const sess = sessions[0];
@@ -356,8 +405,22 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
           multiplier: sess.multiplier(),
           health: sess.health,
           done: false,
+          events: recorded.slice(sentEventCursor),
         });
+        sentEventCursor = recorded.length;
         renderLeaderboard();
+      }
+
+      // replay the other players' streamed inputs on a slightly delayed clock
+      const remoteNow = nowJ - REMOTE_VIEW_DELAY;
+      for (const r of remotes.values()) {
+        while (r.cursor < r.queue.length && r.queue[r.cursor].t <= remoteNow) {
+          const ev = r.queue[r.cursor++];
+          r.playfield.pressLane(ev.lane, ev.down);
+          if (ev.down) r.session.press(ev.lane, ev.t);
+          else r.session.release(ev.lane, ev.t);
+        }
+        if (!r.session.failed && remoteNow > 0) r.session.update(remoteNow);
       }
 
       const soloFailed = players.length === 1 && sessions[0].failed;
@@ -373,6 +436,17 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
     const countdown = nowJ < startMs ? (startMs - nowJ) / (1000 * rate) : null;
     for (let i = 0; i < playfields.length; i++) {
       playfields[i].draw(nowV, hudFor(i), countdown, sessions[i].notes);
+    }
+    for (const r of remotes.values()) {
+      r.playfield.draw(nowJ - REMOTE_VIEW_DELAY + s.visualOffsetMs, {
+        score: r.session.score,
+        combo: r.session.combo,
+        multiplier: r.session.multiplier(),
+        accuracy: r.session.accuracy(),
+        health: r.session.health,
+        failed: r.session.failed,
+        name: r.name,
+      }, countdown, r.session.notes);
     }
   }
 
@@ -451,7 +525,8 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
 
     if (params.online && ctx.net.isConnected()) {
       const sess = sessions[0];
-      ctx.net.send('progress', { score: sess.score, accuracy: sess.accuracy(), combo: sess.combo, multiplier: sess.multiplier(), health: sess.health, done: true });
+      ctx.net.send('progress', { score: sess.score, accuracy: sess.accuracy(), combo: sess.combo, multiplier: sess.multiplier(), health: sess.health, done: true, events: recorded.slice(sentEventCursor) });
+      sentEventCursor = recorded.length;
       ctx.net.send('finish', {
         result: { score: sess.score, accuracy: sess.accuracy(), grade: sess.grade(), maxCombo: sess.maxCombo, failed: sess.failed },
       });

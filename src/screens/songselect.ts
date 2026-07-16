@@ -4,7 +4,7 @@ import { DEMO_SONG_ID, makeEmptyChart, modeLabel } from '../charts/chart';
 import { analyzeSong, estimateGrid, generateSampleCharts } from '../charts/autochart';
 import { adminDeleteScore, adminToken, adminUpdateScore, fetchLeaderboard, type LeaderboardEntry } from '../net/api';
 import { isBundledSong, LIBRARY_CHANGED_EVENT } from '../store/bundled';
-import { clamp, el, fmtPct, toast, uid } from '../util';
+import { clamp, el, fmtDur, fmtPct, toast, uid } from '../util';
 
 export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: string }): Screen {
   root.innerHTML = '';
@@ -55,16 +55,59 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
     await selectSong(selectedSong);
   }
 
+  // song whose preview snippet is currently playing (art button shows ■)
+  let previewingId: string | null = null;
+
+  async function toggleCardPreview(song: SongData): Promise<void> {
+    if (previewingId === song.id) {
+      ctx.audio.stopPreview();
+      previewingId = null;
+      renderList();
+      return;
+    }
+    void selectSong(song); // also stops any other song's preview
+    previewingId = song.id;
+    renderList();
+    try {
+      await ctx.audio.ensureRunning();
+      const buf = await ctx.audio.bufferForSong(song, ctx.db);
+      if (previewingId !== song.id) return; // switched away while decoding
+      ctx.audio.startPreview(buf, 12, () => {
+        if (previewingId === song.id) {
+          previewingId = null;
+          renderList();
+        }
+      });
+    } catch (err) {
+      toast(`Preview failed: ${(err as Error).message}`);
+      if (previewingId === song.id) previewingId = null;
+      renderList();
+    }
+  }
+
   function renderList(): void {
     listBox.innerHTML = '';
     const visible = visibleSongs();
     let activeCard: HTMLElement | null = null;
     for (const song of visible) {
-      const card = el('div', { class: 'song-card' + (song.id === selectedSong?.id ? ' active' : ''), onclick: () => void selectSong(song) },
+      const previewing = previewingId === song.id;
+      const art = el('div', {
+        class: 'song-art-wrap',
+        title: previewing ? 'Stop preview' : 'Preview',
+        onclick: (e: Event) => {
+          e.stopPropagation();
+          void toggleCardPreview(song);
+        },
+      },
         song.artDataUrl ? el('img', { src: song.artDataUrl, class: 'song-art' }) : el('div', { class: 'song-art placeholder' }, '♪'),
+        el('div', { class: 'art-play' + (previewing ? ' on' : '') }, previewing ? '■' : '▶'),
+      );
+      const card = el('div', { class: 'song-card' + (song.id === selectedSong?.id ? ' active' : ''), onclick: () => void selectSong(song) },
+        art,
         el('div', null,
           el('div', { class: 'song-title' }, song.title),
-          el('div', { class: 'muted' }, `${song.artist} · ${song.bpm} BPM`),
+          el('div', { class: 'muted' }, song.artist),
+          el('div', { class: 'muted sm' }, `${song.genre ? `${song.genre} · ` : ''}${fmtDur(song.durationMs)} · ${song.bpm} BPM`),
         ),
       );
       if (song.id === selectedSong?.id) activeCard = card;
@@ -113,7 +156,10 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
   window.addEventListener('keydown', onNavKey);
 
   async function selectSong(song: SongData | null): Promise<void> {
-    if (song?.id !== selectedSong?.id) ctx.audio.stopPreview();
+    if (song?.id !== selectedSong?.id && previewingId !== song?.id) {
+      ctx.audio.stopPreview();
+      previewingId = null;
+    }
     selectedSong = song;
     renderList();
     if (!song) {
@@ -136,7 +182,7 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
 
     detailBox.append(
       el('h2', null, song.title),
-      el('div', { class: 'muted' }, `${song.artist} · ${song.bpm} BPM · ${(song.durationMs / 1000).toFixed(0)}s`),
+      el('div', { class: 'muted' }, `${song.artist} · ${song.genre ? `${song.genre} · ` : ''}${song.bpm} BPM · ${fmtDur(song.durationMs)}`),
     );
 
     // chart chips
@@ -178,31 +224,6 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
     );
     detailBox.append(practicePanel);
 
-    // preview: fade in a 12s snippet from ~35% into the song
-    const previewBtn = el('button', {
-      class: 'btn big',
-      onclick: async () => {
-        if (ctx.audio.isPreviewing()) {
-          ctx.audio.stopPreview();
-          return;
-        }
-        previewBtn.disabled = true;
-        previewBtn.textContent = '⏳ Loading…';
-        try {
-          await ctx.audio.ensureRunning();
-          const buf = await ctx.audio.bufferForSong(song, ctx.db);
-          if (selectedSong?.id !== song.id) return; // switched away while decoding
-          ctx.audio.startPreview(buf, 12, () => (previewBtn.textContent = '♫ Preview'));
-          previewBtn.textContent = '■ Stop preview';
-        } catch (err) {
-          toast(`Preview failed: ${(err as Error).message}`);
-          previewBtn.textContent = '♫ Preview';
-        } finally {
-          previewBtn.disabled = false;
-        }
-      },
-    }, ctx.audio.isPreviewing() ? '■ Stop preview' : '♫ Preview') as HTMLButtonElement;
-
     // actions
     detailBox.append(
       el('div', { class: 'btn-row' },
@@ -227,7 +248,6 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
             ctx.nav('play', play);
           },
         }, practice ? 'Practice' : 'Play'),
-        previewBtn,
         song.id !== DEMO_SONG_ID && !isBundledSong(song.id) &&
           el('button', {
             class: 'btn danger',
@@ -408,6 +428,7 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
     const artIn = el('input', { type: 'file', accept: 'image/*' });
     const titleIn = el('input', { type: 'text', placeholder: 'Title' });
     const artistIn = el('input', { type: 'text', placeholder: 'Artist' });
+    const genreIn = el('input', { type: 'text', placeholder: 'e.g. Pop Rock (optional)' });
     const bpmIn = el('input', { type: 'number', placeholder: 'auto-detect', min: '40', max: '300', step: '0.01' });
     const offsetIn = el('input', { type: 'number', placeholder: 'auto-detect', step: '1' });
     const saveBtn = el('button', { class: 'btn primary' }, 'Add song');
@@ -442,6 +463,7 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
           id: uid(),
           title: titleIn.value.trim() || f.name,
           artist: artistIn.value.trim() || 'Unknown',
+          genre: genreIn.value.trim() || undefined,
           bpm: Number(bpmIn.value) || 120,
           offsetMs: Number(offsetIn.value) || 0,
           audioId,
@@ -485,6 +507,7 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
         row('Audio (MP3/WAV/OGG)', fileIn),
         row('Title', titleIn),
         row('Artist', artistIn),
+        row('Genre', genreIn),
         row('BPM', bpmIn),
         row('Offset (ms of beat 0)', offsetIn),
         row('Album art (optional)', artIn),

@@ -192,8 +192,19 @@ input[type="range"] { accent-color: var(--accent); padding: 0; border: none; bac
 .song-card:hover { background: var(--surface2); }
 .song-card.active { border-left-color: var(--accent); background: var(--surface2); }
 .song-title { font-weight: 700; font-size: 14px; }
-.song-art { width: 42px; height: 42px; border-radius: 8px; object-fit: cover; }
+.song-art { width: 46px; height: 46px; border-radius: 8px; object-fit: cover; display: block; }
 .song-art.placeholder { display: flex; align-items: center; justify-content: center; background: var(--surface2); color: var(--muted); font-size: 18px; }
+/* album art doubles as the preview play button */
+.song-art-wrap { position: relative; flex-shrink: 0; cursor: pointer; }
+.art-play {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0, 0, 0, 0.5); color: #fff;
+  border-radius: 8px; font-size: 17px;
+  opacity: 0; transition: opacity 0.12s;
+}
+.song-art-wrap:hover .art-play, .art-play.on { opacity: 1; }
+.art-play.on { color: var(--accent); }
 .wheel-hint { text-align: center; margin-top: 6px; }
 
 /* ---- gameplay (always dark: it's the stage) ---- */
@@ -201,6 +212,15 @@ input[type="range"] { accent-color: var(--accent); padding: 0; border: none; bac
 .play-fields { display: flex; height: 100%; gap: 2px; }
 .play-field { flex: 1; position: relative; min-width: 0; }
 .play-field canvas { width: 100%; height: 100%; display: block; }
+/* live views of the other online players, slightly narrower than your own */
+.play-field.remote { flex: 0.75; }
+.play-field.remote::after { content: ''; position: absolute; inset: 0; pointer-events: none; box-shadow: inset 3px 0 0 rgba(255, 176, 55, 0.35); }
+.remote-tag {
+  position: absolute; top: 8px; left: 10px; z-index: 4;
+  background: rgba(19, 21, 27, 0.85); color: #edeff4;
+  padding: 3px 10px; border-radius: 8px;
+  font-size: 12px; font-weight: 600; letter-spacing: 1px;
+}
 .play-overlay {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
   background: var(--overlay); z-index: 10;

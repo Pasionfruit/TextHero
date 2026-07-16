@@ -76,6 +76,8 @@ export interface SongData {
   audioId: string | null; // IndexedDB blob key; null = built-in synthesized demo or bundled asset
   /** bundled songs: static asset URL fetched on demand instead of an IndexedDB blob */
   audioUrl?: string;
+  /** bundled songs: auto-chart generator version used; bumping regenerates charts */
+  chartGen?: number;
   artDataUrl?: string;
   durationMs: number;
 }

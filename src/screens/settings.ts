@@ -4,6 +4,26 @@ import { applyTheme, DEFAULT_SETTINGS } from '../store/settings';
 import { codeLabel, el, toast } from '../util';
 import { checkbox, numInput, row, selectInput } from './songselect';
 
+/** Master volume slider with live preview — shared by Settings and the pause menu. */
+export function volumeRow(ctx: AppCtx): HTMLElement {
+  const s = ctx.settings;
+  const valEl = el('span', { class: 'muted sm vol-val' }, `${Math.round(s.volume * 100)}%`);
+  const slider = el('input', {
+    type: 'range',
+    min: '0',
+    max: '100',
+    step: '1',
+    value: String(Math.round(s.volume * 100)),
+    oninput: (e: Event) => {
+      s.volume = Number((e.target as HTMLInputElement).value) / 100;
+      ctx.audio.setVolume(s.volume);
+      valEl.textContent = `${Math.round(s.volume * 100)}%`;
+    },
+    onchange: () => ctx.saveSettings(),
+  });
+  return el('div', { class: 'form-row' }, el('label', null, 'Volume'), slider, valEl);
+}
+
 export function settingsScreen(root: HTMLElement, ctx: AppCtx, _params: any): Screen {
   root.innerHTML = '';
   const s = ctx.settings;
@@ -58,11 +78,7 @@ export function settingsScreen(root: HTMLElement, ctx: AppCtx, _params: any): Sc
       row('Audio offset (ms)', numInput(s.audioOffsetMs, -300, 300, 1, (v) => (s.audioOffsetMs = v))),
       row('Visual offset (ms)', numInput(s.visualOffsetMs, -300, 300, 1, (v) => (s.visualOffsetMs = v))),
       el('div', { class: 'muted sm' }, 'Positive audio offset = you hear late (hits register early). Adjust until PERFECTs feel centered.'),
-      el('h3', null, 'Judgment windows (± ms)'),
-      row('Perfect', numInput(s.windows.perfect, 5, 100, 1, (v) => (s.windows.perfect = v))),
-      row('Great', numInput(s.windows.great, 10, 160, 1, (v) => (s.windows.great = v))),
-      row('Good', numInput(s.windows.good, 20, 220, 1, (v) => (s.windows.good = v))),
-      row('Bad', numInput(s.windows.bad, 30, 300, 1, (v) => (s.windows.bad = v))),
+      el('div', { class: 'muted sm' }, 'Judgment windows are fixed for everyone so leaderboard scores stay comparable.'),
     ));
 
     const colors = el('div', { class: 'form-row' }, el('label', null, 'Lane colors'));
@@ -106,6 +122,7 @@ export function settingsScreen(root: HTMLElement, ctx: AppCtx, _params: any): Sc
 
     page.append(el('div', { class: 'panel' },
       el('h3', null, 'Audio & Online'),
+      volumeRow(ctx),
       row('Hit sounds', checkbox(s.hitSounds, (v) => (s.hitSounds = v))),
       row('Multiplayer server', el('input', { type: 'text', value: s.serverUrl, style: { width: '240px' }, onchange: (e: Event) => (s.serverUrl = (e.target as HTMLInputElement).value) })),
     ));

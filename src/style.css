@@ -139,6 +139,8 @@ input, select {
 input:focus, select:focus { outline: none; border-color: var(--accent-dim); }
 input[type="color"] { padding: 0; width: 32px; height: 28px; }
 input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent); }
+input[type="range"] { accent-color: var(--accent); padding: 0; border: none; background: transparent; flex: 1; min-width: 120px; }
+.vol-val { min-width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
 
 .form-row { display: flex; align-items: center; gap: 10px; margin: 8px 0; flex-wrap: wrap; }
 .form-row > label { min-width: 168px; color: var(--muted); font-size: 13px; }
@@ -204,7 +206,10 @@ input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--accent);
   background: var(--overlay); z-index: 10;
 }
 .play-overlay.hide { display: none; }
-.pause-panel { display: flex; flex-direction: column; gap: 10px; min-width: 240px; text-align: center; }
+.pause-panel { display: flex; flex-direction: column; gap: 10px; min-width: 260px; text-align: center; }
+.pause-settings { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 4px; text-align: left; }
+.pause-settings .form-row > label { min-width: 60px; }
+.pause-settings.hide { display: none; }
 .play-topbar { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 5; }
 .replay-bar { display: flex; gap: 8px; align-items: center; background: rgba(19, 21, 27, 0.92); border-radius: 10px; padding: 6px 14px; }
 .play-leaderboard {

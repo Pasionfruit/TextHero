@@ -7,6 +7,7 @@ import { compileNotes, laneCountOf, LETTERS } from '../charts/chart';
 import { multiplierFor } from '../types';
 import type { JudgeEvent, ReplayData, ReplayEventRec, ScoreRecord } from '../types';
 import { clamp, codeLabel, el, fmtTime, toast, uid } from '../util';
+import { volumeRow } from './settings';
 
 interface BandState {
   health: number;
@@ -194,12 +195,18 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
     void conductor.pause();
     overlay.classList.remove('hide');
     overlay.innerHTML = '';
+    const settingsBox = el('div', { class: 'pause-settings hide' },
+      volumeRow(ctx),
+      el('div', { class: 'muted sm' }, 'More options in Settings on the main menu.'),
+    );
     overlay.append(
       el('div', { class: 'panel pause-panel' },
         el('h2', null, 'Paused'),
         el('button', { class: 'btn primary', onclick: () => resumeGame() }, 'Resume'),
         el('button', { class: 'btn', onclick: () => restart() }, 'Restart'),
+        el('button', { class: 'btn', onclick: () => settingsBox.classList.toggle('hide') }, '⚙ Settings'),
         el('button', { class: 'btn danger', onclick: () => quit() }, 'Quit'),
+        settingsBox,
       ),
     );
   }

@@ -37,14 +37,14 @@ Notes:
 - **Letters mode** — any letter A–Z can come down the highway as a lettered gem; press *that letter* on the beat. Gems are spread across five columns by physical keyboard position (left-hand letters fall on the left), and judging is per-letter.
 - **Full Keyboard mode** — osu!mania/typing hybrid; the chart decides which keys appear (letters, digits, symbols), each with its own labeled lane.
 - Tap notes, **sustain (hold) notes**, and **chords** (simultaneous notes are just multiple notes on one beat).
-- Timing judgments **Perfect/Great/Good/Bad/Miss** (300/200/100/50/0), windows globally configurable in Settings, colorful judgment popups.
+- Timing judgments **Perfect/Great/Good/Bad/Miss** (300/200/100/50/0) with colorful judgment popups. Judgment windows are **fixed for everyone** so leaderboard scores stay comparable.
 - **Combo & multiplier** (10→2x, 25→3x, 50→4x, 100→5x), multiplier resets on miss; live accuracy %, max combo.
 - **Health/fail system** — accurate hits heal, misses/ghost taps/early-late (Bad) hits drain; zero health fails the song unless **No Fail** is on.
 - Final **grade** SS/S/A/B/C/D/F with full per-judgment statistics.
 
 ### Modifiers & options
 - Scroll **up or down**, plus **Reverse**, **Hidden** (notes fade near the line), **Sudden** (notes appear late), scroll-speed multiplier.
-- Judgment-line position, note skins (**gems / bars / circles / arrows**), lane colors, note size, lane spacing, background dim, particles, FPS limit, fullscreen, hit sounds, custom font.
+- Judgment-line position, note skins (**gems / bars / circles / arrows**), lane colors, note size, lane spacing, background dim, particles, FPS limit, fullscreen, hit sounds, custom font, **master volume** (also adjustable from the in-game pause menu via ⚙ Settings).
 - **Dark / light theme** — toggle from the main menu or Settings → Visuals; the chart editor's timeline follows the theme (the gameplay highway stays dark by design).
 - **Accessibility**: colorblind-safe palette (Okabe–Ito), high-contrast mode, reduced effects, adjustable note size/spacing, one-handed play via rebinding.
 
@@ -52,7 +52,7 @@ Notes:
 - **Bundled library**: every `Title - Artist.mp3` dropped into `src/audio/` ships with the build. On first boot each one is decoded, analyzed, and auto-charted in the background — songs appear in Song Select one by one. Bundled songs get deterministic IDs derived from the filename, so every player shares the same global leaderboard per chart.
 - **Song select browsing**: filter box (search by title/artist), scroll-wheel/arrow-key selection, and a **♫ Preview** button that plays a faded 12-second snippet from the hook of the song.
 - Upload **MP3 / WAV / OGG**; stored locally in IndexedDB with title, artist, BPM, offset, and optional album art.
-- **Automatic sample levels**: every upload is analyzed (3-band onset detection via an offline filter pass) and playable charts are generated instantly — five-key Easy/Medium/Hard plus a Letters chart. **BPM and offset are auto-detected** (autocorrelation tempo + grid-phase fit) when left blank; enter a BPM to lock it and only fit the phase. Kicks anchor the outer lanes, hats the inner ones, melodic onsets walk the middle lanes, and sustained mid-band energy becomes hold notes. The editor's **✨ Auto-fill** button regenerates any chart (any mode/difficulty) from the audio, undoable with Ctrl+Z. Assumes a steady tempo; charts are starting points meant to be refined.
+- **Automatic sample levels**: every upload is analyzed (3-band onset detection via an offline filter pass) and playable charts are generated instantly — five-key Easy/Medium/Hard plus a Letters chart. **BPM and offset are auto-detected** (autocorrelation tempo + grid-phase fit) when left blank; enter a BPM to lock it and only fit the phase. **Notes sit on the actual audio hits** — onsets within ~80 ms merge into one event anchored on the loudest, soft-snapping to the beat grid only when already close, so an imperfect BPM estimate can't drag notes off the sound; when hits crowd tighter than the difficulty allows, the loudest wins. Kicks anchor the outer lanes, hats the inner ones, melodic onsets walk the middle lanes, and sustained mid-band energy becomes **hold notes** (envelope-decay tracked, spaced out with a cooldown so they punctuate rather than dominate). The editor's **✨ Auto-fill** button regenerates any chart (any mode/difficulty) from the audio, undoable with Ctrl+Z. Bundled songs regenerate their charts automatically when the generator improves (hand-edited charts are never touched).
 - **Chart editor**: vertical timeline with **waveform**, a **transport scrubber** (play/pause + draggable seek bar with live timecode) to jump anywhere in the song while placing notes, BPM editor + tap-BPM, offset adjustment, snap divisions **1/1 – 1/32 incl. 1/24**, click-to-place, drag-to-move, drag-down for holds, right-click delete, box select, copy/paste, undo/redo, multiple difficulty charts per song (Easy/Medium/Hard/Expert × mode), instant **test play (F5)** that returns to the editor, JSON export.
 
 ### Practice, replays, leaderboards

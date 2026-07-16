@@ -30,6 +30,7 @@ async function boot(): Promise<void> {
   const settings = loadSettings();
   applyTheme(settings);
   const audio = new AudioEngine();
+  audio.setVolume(settings.volume);
   const net = new NetClient();
 
   // seed the built-in demo song + any missing demo charts (first run, wipe, or new

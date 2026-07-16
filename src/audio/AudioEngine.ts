@@ -16,6 +16,11 @@ export class AudioEngine {
     this.master.connect(this.ctx.destination);
   }
 
+  /** Master output volume, 0..1. */
+  setVolume(v: number): void {
+    this.master.gain.value = Math.min(1, Math.max(0, v));
+  }
+
   /** AudioContext requires a user gesture on most browsers; call on any click/keydown. */
   async ensureRunning(): Promise<void> {
     if (this.ctx.state !== 'running') {

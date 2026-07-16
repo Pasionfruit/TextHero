@@ -19,6 +19,10 @@ const BUNDLED_MP3S = import.meta.glob('../audio/*.mp3', {
 
 const BUNDLED_PREFIX = 'bundled-';
 
+/** Bump when the auto-chart generator improves: bundled charts regenerate on
+ *  next boot (charts the player edited in the editor are left alone). */
+const BUNDLED_CHART_GEN = 2;
+
 export const isBundledSong = (songId: string): boolean => songId.startsWith(BUNDLED_PREFIX);
 
 export const LIBRARY_CHANGED_EVENT = 'texthero:library-changed';
@@ -62,6 +66,10 @@ export async function importBundledSongs(db: DB, audio: AudioEngine, onImported?
           existing.audioUrl = url;
           await db.put('songs', existing);
         }
+        if ((existing.chartGen ?? 1) < BUNDLED_CHART_GEN) {
+          await regenerateCharts(db, audio, existing);
+          onImported?.(existing);
+        }
         continue;
       }
 
@@ -76,6 +84,7 @@ export async function importBundledSongs(db: DB, audio: AudioEngine, onImported?
         offsetMs: 0,
         audioId: null,
         audioUrl: url,
+        chartGen: BUNDLED_CHART_GEN,
         durationMs: Math.round(buf.duration * 1000),
       };
 
@@ -102,4 +111,23 @@ export async function importBundledSongs(db: DB, audio: AudioEngine, onImported?
     }
   }
   return imported;
+}
+
+/** Re-run the auto-charter for an already-imported bundled song (generator
+ *  upgrade). Keeps the stored BPM/offset so existing scores and any manual
+ *  edits stay meaningful, and never overwrites a chart saved from the editor. */
+async function regenerateCharts(db: DB, audio: AudioEngine, song: SongData): Promise<void> {
+  const res = await fetch(song.audioUrl!);
+  if (!res.ok) throw new Error(`fetch ${res.status}`);
+  const buf = await audio.ctx.decodeAudioData(await res.arrayBuffer());
+  const analysis = await analyzeSong(buf);
+  const charts = generateSampleCharts(song, analysis);
+  for (const c of charts) {
+    c.id = `${song.id}-${c.mode}-${c.difficulty}`;
+    const old = await db.get<ChartData>('charts', c.id);
+    if (old?.updatedIso) continue; // hand-edited in the chart editor — keep it
+    await db.put('charts', c);
+  }
+  song.chartGen = BUNDLED_CHART_GEN;
+  await db.put('songs', song);
 }

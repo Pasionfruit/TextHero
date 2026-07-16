@@ -197,17 +197,27 @@ const hashStr = (s: string): number => {
 const quantile = (sorted: number[], q: number): number =>
   sorted.length ? sorted[clamp(Math.floor(q * sorted.length), 0, sorted.length - 1)] : 0;
 
-/** How long the mid band stays energized after an onset (for hold notes), in beats. */
+/** How long the mid band stays energized after an onset (for hold notes), in beats.
+ *  Follows the envelope until it decays below 30% of its post-onset peak,
+ *  tolerating brief dips (vibrato, re-articulation). Only a mid onset at least
+ *  as strong as this one — a genuinely new melody note — cuts the hold short. */
 function sustainBeats(a: SongAnalysis, o: Onset, song: SongData): number {
   const e = a.env[1];
   if (!e || o.band !== 1) return 0;
-  const v0 = e[Math.min(e.length - 1, o.frame + 2)];
-  if (v0 <= 0) return 0;
-  let j = o.frame + 4;
-  const nextMid = a.onsets.find((x) => x.band === 1 && x.frame > o.frame + 6);
-  const stopFrame = nextMid ? nextMid.frame - 2 : e.length;
-  while (j < e.length && j < stopFrame && e[j] > v0 * 0.35) j++;
-  const sec = (j - o.frame) * a.hopSec;
+  let peak = 0;
+  for (let j = o.frame; j < Math.min(e.length, o.frame + 8); j++) peak = Math.max(peak, e[j]);
+  if (peak <= 0) return 0;
+  const nextStrong = a.onsets.find((x) => x.band === 1 && x.frame > o.frame + 6 && x.strength >= o.strength);
+  const stopFrame = nextStrong ? nextStrong.frame - 2 : e.length;
+  const dipTol = Math.round(0.09 / a.hopSec);
+  let j = o.frame + 8;
+  let below = 0;
+  while (j < e.length && j < stopFrame) {
+    if (e[j] >= peak * 0.3) below = 0;
+    else if (++below > dipTol) break;
+    j++;
+  }
+  const sec = (j - below - o.frame) * a.hopSec;
   return (sec / 60) * song.bpm;
 }
 
@@ -218,6 +228,9 @@ export function generateNotes(
   difficulty: Difficulty,
   laneCount: number,
 ): NoteData[] {
+  // quantum is the minimum spacing between notes, NOT a placement grid — notes
+  // sit on the actual audio hits so a slightly-off BPM estimate can't drag
+  // them off the sound
   const quantum = difficulty === 'easy' ? 1 : difficulty === 'medium' ? 0.5 : 0.25;
   const dropQ = difficulty === 'easy' ? 0.55 : difficulty === 'medium' ? 0.3 : 0.08;
   const strengths = a.onsets.map((o) => o.strength).sort((x, y) => x - y);
@@ -225,30 +238,75 @@ export function generateNotes(
   const maxBeat = msToBeat(song, a.duration * 1000 - 200);
   const rng = mulberry32(hashStr(song.id + mode + difficulty));
 
-  // bucket onsets by quantized beat, keeping the strongest onset per band
-  const ticks = new Map<number, Onset[]>();
+  // ---- build one event per loud hit ----
+  // onsets within ~80ms (kick + hat landing together) merge into one event
+  // anchored on the loudest of them; chord members share that exact beat
+  interface Ev {
+    beat: number;
+    strength: number;
+    byBand: Map<number, Onset>;
+  }
+  const winBeats = (0.08 * song.bpm) / 60;
+  const events: Ev[] = [];
+  let bucket: Onset[] = [];
+  let bucketStart = -Infinity;
+  const flush = (): void => {
+    if (!bucket.length) return;
+    const strongest = bucket.reduce((m, o) => (o.strength > m.strength ? o : m));
+    let beat = msToBeat(song, strongest.t * 1000);
+    // soft snap: take the grid when the hit is already on it, else trust the audio
+    const snapped = Math.round(beat / 0.25) * 0.25;
+    beat = Math.abs(snapped - beat) <= 0.07 ? snapped : Math.round(beat * 48) / 48;
+    if (beat >= 0 && beat <= maxBeat) {
+      const byBand = new Map<number, Onset>();
+      for (const o of bucket) {
+        const ex = byBand.get(o.band);
+        if (!ex || o.strength > ex.strength) byBand.set(o.band, o);
+      }
+      events.push({ beat, strength: strongest.strength, byBand });
+    }
+    bucket = [];
+  };
   for (const o of a.onsets) {
     if (o.strength < cut) continue;
-    const beat = Math.round(msToBeat(song, o.t * 1000) / quantum) * quantum;
-    if (beat < 0 || beat > maxBeat) continue;
-    const key = Math.round(beat * 1000);
-    const arr = ticks.get(key) ?? [];
-    const existing = arr.find((x) => x.band === o.band);
-    if (existing) {
-      if (o.strength > existing.strength) arr[arr.indexOf(existing)] = o;
-    } else {
-      arr.push(o);
+    const b = msToBeat(song, o.t * 1000);
+    if (b - bucketStart > winBeats) {
+      flush();
+      bucketStart = b;
     }
-    ticks.set(key, arr);
+    bucket.push(o);
+  }
+  flush();
+
+  // ---- per-difficulty density: when hits crowd closer than the quantum,
+  // keep the loudest one instead of whichever came first ----
+  const spaced: Ev[] = [];
+  for (const ev of events) {
+    const prev = spaced[spaced.length - 1];
+    if (prev && ev.beat - prev.beat < quantum * 0.99) {
+      if (ev.strength > prev.strength) spaced[spaced.length - 1] = ev;
+    } else {
+      spaced.push(ev);
+    }
   }
 
-  const keys = [...ticks.keys()].sort((x, y) => x - y);
+  /** Hold length for an event, from how long its mid-band energy sustains.
+   *  Selective on purpose: only reasonably strong onsets qualify, and callers
+   *  add a cooldown so holds punctuate the chart instead of dominating it. */
+  const holdFor = (ev: Ev): number => {
+    const mid = ev.byBand.get(1);
+    if (!mid || mid.strength < 0.3) return 0;
+    const s = sustainBeats(a, mid, song);
+    if (difficulty === 'easy') return s >= 1.5 ? clamp(Math.round(s * 2) / 2, 1.5, 3) : 0;
+    return s >= 1 ? clamp(Math.round(s * 4) / 4, 1, 4) : 0;
+  };
+  const HOLD_COOLDOWN = 2; // beats after a hold ends before the next may start
+  let lastHoldEnd = -9;
+
   const notes: NoteData[] = [];
   const laneEnd = new Map<number, number>(); // lane -> beat where it frees up
-  const free = (lane: number, beat: number, dur: number): boolean =>
-    beat >= (laneEnd.get(lane) ?? -9) + 0.24;
   const put = (beat: number, lane: number, dur: number): boolean => {
-    if (!free(lane, beat, dur)) return false;
+    if (beat < (laneEnd.get(lane) ?? -9) + 0.24) return false;
     notes.push({ beat, lane, durBeats: dur });
     laneEnd.set(lane, beat + dur);
     return true;
@@ -258,23 +316,18 @@ export function generateNotes(
     const pool = difficulty === 'easy' || difficulty === 'medium' ? 'ASDFGHJKLERTUIO' : LETTERS;
     const lastByLetter = new Map<number, number>();
     const lastByCol = new Map<number, number>();
-    let lastBeat = -9;
-    for (const key of keys) {
-      const beat = key / 1000;
-      if (beat - lastBeat < quantum * 0.99) continue;
-      const group = ticks.get(key)!;
-      const strongest = group.reduce((m, o) => (o.strength > m.strength ? o : m));
-      const dur = difficulty !== 'easy' ? clamp(Math.round(sustainBeats(a, strongest, song) / quantum) * quantum, 0, 4) : 0;
-      const durBeats = dur >= 1 ? dur : 0;
+    for (const ev of spaced) {
+      const hold = difficulty !== 'easy' && ev.beat >= lastHoldEnd + HOLD_COOLDOWN ? holdFor(ev) : 0;
+      const durBeats = hold >= 1 ? hold : 0;
       for (let attempt = 0; attempt < 14; attempt++) {
         const ch = pool[Math.floor(rng() * pool.length)];
         const lane = LETTERS.indexOf(ch);
         const col = letterColumn(lane, 5);
-        if (beat - (lastByLetter.get(lane) ?? -9) >= 0.9 && beat - (lastByCol.get(col) ?? -9) >= 0.45) {
-          notes.push({ beat, lane, durBeats });
-          lastByLetter.set(lane, beat + durBeats);
-          lastByCol.set(col, beat + durBeats);
-          lastBeat = beat;
+        if (ev.beat - (lastByLetter.get(lane) ?? -9) >= 0.9 && ev.beat - (lastByCol.get(col) ?? -9) >= 0.45) {
+          notes.push({ beat: ev.beat, lane, durBeats });
+          lastByLetter.set(lane, ev.beat + durBeats);
+          lastByCol.set(col, ev.beat + durBeats);
+          if (durBeats > 0) lastHoldEnd = ev.beat + durBeats;
           break;
         }
       }
@@ -290,12 +343,13 @@ export function generateNotes(
   let lowIdx = 0;
   let highIdx = 0;
   let walkLane = Math.floor(lanes / 2);
-  let lastBeat = -9;
 
-  for (const key of keys) {
-    const beat = key / 1000;
-    if (beat - lastBeat < quantum * 0.99) continue;
-    const group = ticks.get(key)!.sort((x, y) => y.strength - x.strength);
+  for (const ev of spaced) {
+    const evHold = ev.beat >= lastHoldEnd + HOLD_COOLDOWN ? holdFor(ev) : 0;
+    const group = [...ev.byBand.values()].sort((x, y) => y.strength - x.strength);
+    // a sustained mid note should win the (often single) chord slot over a
+    // coincident kick/hat, or the hold never gets placed
+    if (evHold > 0) group.sort((x, y) => (y.band === 1 ? 1 : 0) - (x.band === 1 ? 1 : 0));
     const chordCap = difficulty === 'expert' || difficulty === 'hard' ? 2 : group.every((o) => o.strength > 0.8) && difficulty === 'medium' ? 2 : 1;
     let placed = 0;
     for (const o of group) {
@@ -310,15 +364,13 @@ export function generateNotes(
         const step = rng() < 0.55 ? (rng() < 0.5 ? -1 : 1) : 0;
         walkLane = clamp(walkLane + step, lanes >= 5 && difficulty !== 'hard' && difficulty !== 'expert' ? 1 : 0, lanes >= 5 && difficulty !== 'hard' && difficulty !== 'expert' ? lanes - 2 : lanes - 1);
         lane = walkLane;
-        if (difficulty !== 'easy') {
-          const s = sustainBeats(a, o, song);
-          const q = Math.round(s / quantum) * quantum;
-          if (q >= 1.2) dur = clamp(q, 1, 4);
-        }
+        dur = evHold;
       }
-      if (put(beat, lane, dur)) placed++;
+      if (put(ev.beat, lane, dur)) {
+        placed++;
+        if (dur > 0) lastHoldEnd = ev.beat + dur;
+      }
     }
-    if (placed > 0) lastBeat = beat;
   }
   return notes.sort((x, y) => x.beat - y.beat || x.lane - y.lane);
 }

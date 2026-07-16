@@ -21,6 +21,8 @@ export interface Settings {
   laneSpacingPx: number;
   fontFamily: string;
   hitSounds: boolean;
+  /** master output volume 0..1 */
+  volume: number;
   bgDim: number;
   particles: boolean;
   reducedEffects: boolean;
@@ -71,6 +73,7 @@ export const DEFAULT_SETTINGS: Settings = {
   laneSpacingPx: 4,
   fontFamily: 'system-ui',
   hitSounds: true,
+  volume: 0.9,
   bgDim: 0.5,
   particles: true,
   reducedEffects: false,
@@ -86,11 +89,15 @@ export function loadSettings(): Settings {
     const raw = localStorage.getItem(KEY);
     if (!raw) return structuredClone(DEFAULT_SETTINGS);
     const parsed = JSON.parse(raw);
-    return {
+    const s: Settings = {
       ...structuredClone(DEFAULT_SETTINGS),
       ...parsed,
-      windows: { ...DEFAULT_SETTINGS.windows, ...(parsed.windows ?? {}) },
+      // judgment windows decide what each hit is worth — they are fixed, not
+      // user-tunable, so global leaderboard scores stay comparable
+      windows: { ...DEFAULT_SETTINGS.windows },
     };
+    s.volume = Number.isFinite(Number(parsed.volume)) ? Math.min(1, Math.max(0, Number(parsed.volume))) : DEFAULT_SETTINGS.volume;
+    return s;
   } catch {
     return structuredClone(DEFAULT_SETTINGS);
   }

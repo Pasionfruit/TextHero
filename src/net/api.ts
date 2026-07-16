@@ -1,5 +1,5 @@
 import type { Settings } from '../store/settings';
-import type { Difficulty, GameMode } from '../types';
+import type { ChartData, Difficulty, GameMode, SongData } from '../types';
 
 /** REST client for the server-side (SQLite) global leaderboard. */
 
@@ -63,6 +63,60 @@ export async function submitScore(s: Settings, sub: ScoreSubmission): Promise<Su
   const data = await res.json().catch(() => null);
   if (!res.ok || !data?.ok) throw new Error(data?.error || `Score submission failed (${res.status})`);
   return data as SubmitResult;
+}
+
+// ---- published charts (admin-authored canonical version, shared by everyone) ----
+
+export interface PublishedChart {
+  chartId: string;
+  songId: string;
+  title: string;
+  artist: string;
+  bpm: number;
+  offsetMs: number;
+  mode: GameMode;
+  difficulty: Difficulty;
+  keys: string[];
+  notes: { beat: number; lane: number; durBeats: number }[];
+  updatedIso: string;
+}
+
+export async function fetchPublishedCharts(s: Settings, songId: string): Promise<PublishedChart[]> {
+  const res = await fetch(`${apiBase(s)}/api/charts?songId=${encodeURIComponent(songId)}`, {
+    signal: AbortSignal.timeout(6000),
+  });
+  if (!res.ok) throw new Error(`Chart fetch failed (${res.status})`);
+  return (await res.json()).charts as PublishedChart[];
+}
+
+/** Publish a song's charts as the version all players will play (admin only). */
+export async function publishCharts(s: Settings, song: SongData, charts: ChartData[]): Promise<number> {
+  const token = adminToken();
+  if (!token) throw new Error('Not logged in as admin');
+  const payload = {
+    charts: charts.map((c) => ({
+      id: c.id,
+      songId: c.songId,
+      title: song.title,
+      artist: song.artist,
+      bpm: song.bpm,
+      offsetMs: song.offsetMs,
+      mode: c.mode,
+      difficulty: c.difficulty,
+      keys: c.keys,
+      notes: c.notes,
+    })),
+  };
+  const res = await fetch(`${apiBase(s)}/api/charts`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(12000),
+  });
+  const data = await res.json().catch(() => null);
+  if (res.status === 401) clearAdminToken();
+  if (!res.ok || !data?.ok) throw new Error(data?.error || `Publish failed (${res.status})`);
+  return data.published as number;
 }
 
 // ---- admin ----

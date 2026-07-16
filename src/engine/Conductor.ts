@@ -20,6 +20,21 @@ export class Conductor {
   constructor(private audio: AudioEngine) {}
 
   /**
+   * Lock the latency compensation. Call at the moment playback actually starts:
+   * the audio device's reported output latency is only reliable once the context
+   * is running and a source is scheduled, so sampling it here (rather than at
+   * screen setup) keeps the very first note centered on the judgment line.
+   *
+   *   judged/heard song time  =  rawMs (fed to the DAC)  −  outputLatency  −  audioOffset
+   *
+   * so a key struck exactly when the player hears a beat lands at deltaMs ≈ 0.
+   */
+  setLatency(audioOffsetMs: number): void {
+    const outMs = Math.min(400, Math.max(0, this.audio.outputLatencyMs()));
+    this.judgeOffsetMs = outMs + audioOffsetMs;
+  }
+
+  /**
    * Start playback. Song time begins at (fromMs - leadInMs*rate) and reaches
    * fromMs exactly when the audio starts, giving a synchronized count-in.
    */

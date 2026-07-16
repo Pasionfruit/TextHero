@@ -65,6 +65,10 @@ export interface ChartData {
   keys: string[];
   notes: NoteData[];
   updatedIso?: string;
+  /** set when this chart came from the server as the admin's published, canonical
+   *  version — the one everyone plays and is ranked on */
+  published?: boolean;
+  publishedIso?: string;
 }
 
 export interface SongData {

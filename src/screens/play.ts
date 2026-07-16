@@ -380,6 +380,8 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
   }
 
   // ---- main loop ----
+  // Provisional value; re-sampled the instant playback begins (see startPlayback),
+  // when the device's reported output latency is trustworthy.
   conductor.judgeOffsetMs = ctx.audio.outputLatencyMs() + s.audioOffsetMs;
 
   let buffer: AudioBuffer | null = null;
@@ -387,6 +389,9 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
   function startPlayback(fromMs: number, leadInMs: number): void {
     if (!buffer) return;
     conductor.play(buffer, { fromMs, rate, leadInMs });
+    // lock latency compensation now the context is running + source scheduled,
+    // so the first note is judged exactly when it reaches the line
+    conductor.setLatency(s.audioOffsetMs);
   }
 
   function frame(t: number): void {

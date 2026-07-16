@@ -82,8 +82,48 @@ function makeSqliteStore() {
        grade = COALESCE(?, grade), max_combo = COALESCE(?, max_combo)
      WHERE id = ?`,
   );
+
+  // published charts: the admin's canonical version of each chart, served to all players
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS charts (
+      chart_id   TEXT PRIMARY KEY,
+      song_id    TEXT NOT NULL,
+      title      TEXT NOT NULL DEFAULT '',
+      artist     TEXT NOT NULL DEFAULT '',
+      bpm        REAL NOT NULL DEFAULT 120,
+      offset_ms  INTEGER NOT NULL DEFAULT 0,
+      mode       TEXT NOT NULL DEFAULT 'five',
+      difficulty TEXT NOT NULL DEFAULT 'medium',
+      keys_json  TEXT NOT NULL DEFAULT '[]',
+      notes_json TEXT NOT NULL,
+      updated_iso TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_charts_song ON charts (song_id);
+  `);
+  const stmtChartsBySong = db.prepare('SELECT * FROM charts WHERE song_id = ?');
+  const stmtChartUpsert = db.prepare(
+    `INSERT INTO charts (chart_id, song_id, title, artist, bpm, offset_ms, mode, difficulty, keys_json, notes_json, updated_iso)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (chart_id) DO UPDATE SET
+       song_id = excluded.song_id, title = excluded.title, artist = excluded.artist,
+       bpm = excluded.bpm, offset_ms = excluded.offset_ms, mode = excluded.mode,
+       difficulty = excluded.difficulty, keys_json = excluded.keys_json,
+       notes_json = excluded.notes_json, updated_iso = excluded.updated_iso`,
+  );
+  const stmtChartDelete = db.prepare('DELETE FROM charts WHERE chart_id = ?');
+
   return {
     kind: 'sqlite',
+    async chartsForSong(songId) {
+      return stmtChartsBySong.all(songId);
+    },
+    async putChart(c) {
+      stmtChartUpsert.run(c.chart_id, c.song_id, c.title, c.artist, c.bpm, c.offset_ms, c.mode,
+        c.difficulty, c.keys_json, c.notes_json, c.updated_iso);
+    },
+    async deleteChart(chartId) {
+      return Number(stmtChartDelete.run(chartId).changes);
+    },
     async top(chartId, limit) {
       return stmtTop.all(chartId, limit);
     },
@@ -134,8 +174,42 @@ async function makePgStore(url) {
       UNIQUE (chart_id, player)
     )`);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_scores_chart ON scores (chart_id, score DESC)');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS charts (
+      chart_id   TEXT PRIMARY KEY,
+      song_id    TEXT NOT NULL,
+      title      TEXT NOT NULL DEFAULT '',
+      artist     TEXT NOT NULL DEFAULT '',
+      bpm        DOUBLE PRECISION NOT NULL DEFAULT 120,
+      offset_ms  INTEGER NOT NULL DEFAULT 0,
+      mode       TEXT NOT NULL DEFAULT 'five',
+      difficulty TEXT NOT NULL DEFAULT 'medium',
+      keys_json  TEXT NOT NULL DEFAULT '[]',
+      notes_json TEXT NOT NULL,
+      updated_iso TEXT NOT NULL
+    )`);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_charts_song ON charts (song_id)');
   return {
     kind: 'postgres',
+    async chartsForSong(songId) {
+      const r = await pool.query('SELECT * FROM charts WHERE song_id = $1', [songId]);
+      return r.rows;
+    },
+    async putChart(c) {
+      await pool.query(
+        `INSERT INTO charts (chart_id, song_id, title, artist, bpm, offset_ms, mode, difficulty, keys_json, notes_json, updated_iso)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+         ON CONFLICT (chart_id) DO UPDATE SET
+           song_id = EXCLUDED.song_id, title = EXCLUDED.title, artist = EXCLUDED.artist,
+           bpm = EXCLUDED.bpm, offset_ms = EXCLUDED.offset_ms, mode = EXCLUDED.mode,
+           difficulty = EXCLUDED.difficulty, keys_json = EXCLUDED.keys_json,
+           notes_json = EXCLUDED.notes_json, updated_iso = EXCLUDED.updated_iso`,
+        [c.chart_id, c.song_id, c.title, c.artist, c.bpm, c.offset_ms, c.mode, c.difficulty, c.keys_json, c.notes_json, c.updated_iso],
+      );
+    },
+    async deleteChart(chartId) {
+      return (await pool.query('DELETE FROM charts WHERE chart_id = $1', [chartId])).rowCount;
+    },
     async top(chartId, limit) {
       const r = await pool.query(
         `SELECT id, player, score, accuracy, grade, max_combo AS "maxCombo", no_fail AS "noFail", failed, date_iso AS "dateIso"
@@ -232,6 +306,45 @@ const DIFFICULTIES = new Set(['easy', 'medium', 'hard', 'expert']);
 
 const clampNum = (v, lo, hi) => Math.min(hi, Math.max(lo, Number(v) || 0));
 const cleanStr = (v, max) => String(v ?? '').slice(0, max);
+const safeParse = (s, fallback) => {
+  try {
+    const v = JSON.parse(s);
+    return v ?? fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const MAX_NOTES = 20000;
+
+/** Validate a chart the admin is publishing; returns a DB row or null. */
+function normalizeChart(c) {
+  const chartId = cleanStr(c?.id ?? c?.chartId, 128).trim();
+  const songId = cleanStr(c?.songId, 128).trim();
+  if (!chartId || !songId) return null;
+  if (!MODES.has(c.mode)) return null;
+  if (!DIFFICULTIES.has(c.difficulty)) return null;
+  if (!Array.isArray(c.notes)) return null;
+  const notes = c.notes.slice(0, MAX_NOTES).map((n) => ({
+    beat: clampNum(n.beat, 0, 1e6),
+    lane: Math.round(clampNum(n.lane, 0, 200)),
+    durBeats: clampNum(n.durBeats, 0, 1e4),
+  }));
+  const keys = Array.isArray(c.keys) ? c.keys.slice(0, 64).map((k) => cleanStr(k, 8)) : [];
+  return {
+    chart_id: chartId,
+    song_id: songId,
+    title: cleanStr(c.title, 200),
+    artist: cleanStr(c.artist, 200),
+    bpm: clampNum(c.bpm, 20, 400) || 120,
+    offset_ms: Math.round(clampNum(c.offsetMs, -100000, 100000)),
+    mode: c.mode,
+    difficulty: c.difficulty,
+    keys_json: JSON.stringify(keys),
+    notes_json: JSON.stringify(notes),
+    updated_iso: new Date().toISOString(),
+  };
+}
 
 /** Validate a submitted run; returns a normalized record or null. */
 function normalizeScore(body) {
@@ -318,6 +431,55 @@ async function handleApi(req, res, url) {
     if (improved) await store.upsert(rec);
     const best = improved ? rec : { score: Number(existing.score), accuracy: Number(existing.accuracy), maxCombo: Number(existing.max_combo) };
     return sendJson(res, 200, { ok: true, improved, ...(await store.rank(rec.chartId, best.score, best.accuracy, best.maxCombo)) });
+  }
+
+  // ---- published charts (admin publishes the canonical version for everyone) ----
+  if (url.pathname === '/api/charts' && req.method === 'GET') {
+    const songId = String(url.searchParams.get('songId') || '').slice(0, 128);
+    if (!songId) return sendJson(res, 400, { error: 'songId required' });
+    const rows = await store.chartsForSong(songId);
+    const charts = rows.map((r) => ({
+      chartId: r.chart_id,
+      songId: r.song_id,
+      title: r.title,
+      artist: r.artist,
+      bpm: Number(r.bpm),
+      offsetMs: Number(r.offset_ms),
+      mode: r.mode,
+      difficulty: r.difficulty,
+      keys: safeParse(r.keys_json, []),
+      notes: safeParse(r.notes_json, []),
+      updatedIso: r.updated_iso,
+    }));
+    return sendJson(res, 200, { charts });
+  }
+
+  if (url.pathname === '/api/charts' && req.method === 'POST') {
+    if (!isAdmin(req)) return sendJson(res, 401, { error: 'admin login required to publish charts' });
+    let body;
+    try {
+      body = JSON.parse(await readBody(req, 8 * 1024 * 1024));
+    } catch {
+      return sendJson(res, 400, { error: 'invalid JSON' });
+    }
+    const charts = Array.isArray(body?.charts) ? body.charts : [];
+    if (!charts.length) return sendJson(res, 400, { error: 'no charts to publish' });
+    let published = 0;
+    for (const c of charts) {
+      const rec = normalizeChart(c);
+      if (!rec) continue;
+      await store.putChart(rec);
+      published++;
+    }
+    if (!published) return sendJson(res, 400, { error: 'no valid charts in payload' });
+    return sendJson(res, 200, { ok: true, published });
+  }
+
+  if (url.pathname === '/api/charts' && req.method === 'DELETE') {
+    if (!isAdmin(req)) return sendJson(res, 401, { error: 'admin login required' });
+    const chartId = String(url.searchParams.get('chartId') || '').slice(0, 128);
+    if (!chartId) return sendJson(res, 400, { error: 'chartId required' });
+    return sendJson(res, 200, { ok: true, deleted: await store.deleteChart(chartId) });
   }
 
   if (url.pathname === '/api/admin/login' && req.method === 'POST') {

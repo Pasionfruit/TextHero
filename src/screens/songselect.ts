@@ -4,6 +4,7 @@ import { DEMO_SONG_ID, makeEmptyChart, modeLabel } from '../charts/chart';
 import { analyzeSong, estimateGrid, generateSampleCharts } from '../charts/autochart';
 import { adminDeleteScore, adminToken, adminUpdateScore, fetchLeaderboard, type LeaderboardEntry } from '../net/api';
 import { isBundledSong, LIBRARY_CHANGED_EVENT } from '../store/bundled';
+import { syncPublishedCharts } from '../store/publish';
 import { clamp, el, fmtDur, fmtPct, toast, uid } from '../util';
 
 export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: string }): Screen {
@@ -171,6 +172,21 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
     );
     selectedChart = charts.find((c) => c.id === selectedChart?.id) ?? charts[0] ?? null;
     await renderDetail();
+
+    // pull the admin's published (canonical) charts for this song in the
+    // background; if anything changed, reload so you play the shared version
+    const syncId = song.id;
+    void syncPublishedCharts(ctx.db, ctx.settings, syncId).then(async (changed) => {
+      if (changed && selectedSong?.id === syncId) {
+        const fresh = await ctx.db.get<SongData>('songs', syncId);
+        if (fresh) selectedSong = fresh;
+        charts = (await ctx.db.chartsForSong(syncId)).sort(
+          (a, b) => a.mode.localeCompare(b.mode) || diffOrder(a.difficulty) - diffOrder(b.difficulty),
+        );
+        selectedChart = charts.find((c) => c.id === selectedChart?.id) ?? charts[0] ?? null;
+        await renderDetail();
+      }
+    });
   }
 
   const diffOrder = (d: string) => ['easy', 'medium', 'hard', 'expert'].indexOf(d);

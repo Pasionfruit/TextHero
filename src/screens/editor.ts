@@ -7,6 +7,7 @@ import { clamp, codeLabel, download, el, fitCanvas, fmtTime, toast } from '../ut
 import { Conductor } from '../engine/Conductor';
 import { isLightTheme, laneColor } from '../store/settings';
 import { row, selectInput } from './songselect';
+import { adminToken, publishCharts } from '../net/api';
 
 const SNAPS: Record<string, number> = {
   '1/1': 0.25,
@@ -130,6 +131,7 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
   // ---- toolbar ----
   function renderToolbars(): void {
     if (!song) return;
+    const isAdmin = !!adminToken();
     toolbar.innerHTML = '';
     toolbar2.innerHTML = '';
     const titleIn = el('input', { type: 'text', value: song.title, style: { width: '140px' }, onchange: (e: Event) => { song!.title = (e.target as HTMLInputElement).value; dirty = true; } });
@@ -170,7 +172,11 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
       el('span', { class: 'sep' }),
       el('button', { class: 'btn sm', onclick: () => togglePlay() }, '⏯ Play'),
       el('button', { class: 'btn sm primary', onclick: () => testPlay() }, '▶ Test (F5)'),
-      el('button', { class: 'btn sm', onclick: () => void save() }, '💾 Save'),
+      el('button', {
+        class: 'btn sm' + (isAdmin ? ' primary' : ''),
+        title: isAdmin ? 'Save and publish as the version all players play' : 'Save locally',
+        onclick: () => void save(),
+      }, isAdmin ? '📤 Save & Publish' : '💾 Save'),
       el('button', { class: 'btn sm', onclick: () => exportChart() }, 'Export'),
     );
 
@@ -295,7 +301,23 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
       await ctx.db.put('charts', c);
     }
     dirty = false;
-    toast('Saved');
+    // Admins publish on save: the saved charts become the canonical version that
+    // every player downloads and is ranked on (see store/publish.ts).
+    if (adminToken()) {
+      toast('Saved — publishing to all players…');
+      try {
+        const n = await publishCharts(ctx.settings, song, charts);
+        for (const c of charts) {
+          c.published = true;
+          c.publishedIso = new Date().toISOString();
+        }
+        toast(`Published ${n} chart${n === 1 ? '' : 's'} — everyone now plays this version`);
+      } catch (err) {
+        toast(`Saved locally, but publishing failed: ${(err as Error).message}`);
+      }
+    } else {
+      toast('Saved');
+    }
   }
 
   function exportChart(): void {

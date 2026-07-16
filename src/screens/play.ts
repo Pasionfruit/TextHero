@@ -197,24 +197,28 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
   };
   window.addEventListener('keydown', onKey);
 
-  function pauseGame(): void {
+  function pauseGame(byName?: string, fromNet = false): void {
     if (ended || paused) return;
     paused = true;
     void conductor.pause();
+    if (!fromNet && params.online && ctx.net.isConnected()) ctx.net.send('pause', { paused: true });
     overlay.classList.remove('hide');
     overlay.innerHTML = '';
     overlay.append(
       el('div', { class: 'panel pause-panel' },
-        el('h2', null, 'Paused'),
+        el('h2', null, byName ? `Paused by ${byName}` : 'Paused'),
+        params.online && el('div', { class: 'muted sm' }, 'The match is paused for everyone.'),
         el('button', { class: 'btn primary', onclick: () => resumeGame() }, 'Resume'),
-        el('button', { class: 'btn', onclick: () => restart() }, 'Restart'),
+        !params.online && el('button', { class: 'btn', onclick: () => restart() }, 'Restart'),
         el('div', { class: 'pause-settings' }, volumeRow(ctx)),
         el('button', { class: 'btn danger', onclick: () => quit() }, 'Quit'),
       ),
     );
   }
 
-  function resumeGame(): void {
+  function resumeGame(fromNet = false): void {
+    if (!paused) return;
+    if (!fromNet && params.online && ctx.net.isConnected()) ctx.net.send('pause', { paused: false });
     overlay.classList.add('hide');
     void conductor.resume().then(() => {
       paused = false;
@@ -321,6 +325,20 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
 
   if (params.online && ctx.net.isConnected()) {
     lbBox.classList.remove('hide');
+    // every opponent gets a field from the start — all games side by side
+    if (!isReplay) {
+      for (const p of ctx.net.lobby?.players ?? []) {
+        if (p.id !== ctx.net.lobby?.youId) remoteFor(p.id, p.name);
+      }
+    }
+    // one player pausing pauses the match for everyone; anyone may resume
+    netOff.push(
+      ctx.net.on('pause', (m) => {
+        if (ended || !buffer) return;
+        if (m.paused) pauseGame(m.name, true);
+        else resumeGame(true);
+      }),
+    );
     netOff.push(
       ctx.net.on('progress', (m) => {
         onlineOthers.set(m.playerId, m);

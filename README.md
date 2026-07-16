@@ -67,7 +67,8 @@ Notes:
   - **Band (co-op)** — optional shared health and shared combo/score pools; the run fails only when shared health empties.
   - **Competitive** — individual scores; winner by score → accuracy → max combo.
 - **Online**: bundled Node WebSocket server (`npm run server`). Public/private lobbies with 4-letter codes, player limit, ready-up, host-controlled song/chart (chart + audio are pushed to all players automatically), synchronized start, **live leaderboard overlay** during play, final match rankings.
-- **Live opponent playfields**: during an online match, every other player's gameplay renders beside yours in real time. Their raw inputs stream over the WebSocket and are replayed through the same deterministic judging engine locally (on a clock ~0.5 s behind to absorb network latency), so you see their actual notes, hits, misses, holds, and health — not just a score ticker.
+- **Live opponent playfields**: during an online match, every player's game renders side by side at equal size — your field plus one per opponent, present from the countdown. Their raw inputs stream over the WebSocket and are replayed through the same deterministic judging engine locally (on a clock ~0.5 s behind to absorb network latency), so you see their actual notes, hits, misses, holds, and health — not just a score ticker.
+- **Synced pause**: any player pausing (gear icon or Esc) pauses the match for everyone — the panel shows who paused — and any player can resume. Restart is disabled during online matches to keep clients in sync.
 
 ## Latency & sync design
 

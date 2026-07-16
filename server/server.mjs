@@ -496,6 +496,13 @@ wss.on('connection', (ws) => {
         }
         break;
       }
+      case 'pause':
+        // any player pausing freezes the whole match; any player may resume
+        if (!room || !room.inGame) return;
+        for (const p of room.players.values()) {
+          if (p.id !== player.id) send(p.ws, { t: 'pause', paused: !!msg.paused, playerId: player.id, name: player.name });
+        }
+        break;
       case 'finish':
         if (!room) return;
         player.result = {

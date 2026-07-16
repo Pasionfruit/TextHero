@@ -66,12 +66,14 @@ export class Conductor {
   async pause(): Promise<void> {
     if (!this.playing || this.paused) return;
     this.paused = true;
+    this.audio.pauseHold = true;
     await this.audio.ctx.suspend();
   }
 
   async resume(): Promise<void> {
     if (!this.paused) return;
     this.paused = false;
+    this.audio.pauseHold = false;
     await this.audio.ctx.resume();
   }
 
@@ -89,6 +91,7 @@ export class Conductor {
     this.playing = false;
     if (this.paused) {
       this.paused = false;
+      this.audio.pauseHold = false;
       void this.audio.ctx.resume();
     }
   }

@@ -56,6 +56,15 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
   wrap.append(topBar);
   const lbBox = el('div', { class: 'play-leaderboard hide' });
   wrap.append(lbBox);
+  if (!isReplay) {
+    wrap.append(
+      el('button', {
+        class: 'btn sm play-gear',
+        title: 'Pause — resume, restart, volume (Esc)',
+        onclick: () => (paused ? resumeGame() : pauseGame()),
+      }, '⚙'),
+    );
+  }
   root.append(wrap);
 
   const labelsFor = (codes?: string[]): string[] =>
@@ -189,22 +198,18 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
   window.addEventListener('keydown', onKey);
 
   function pauseGame(): void {
+    if (ended || paused) return;
     paused = true;
     void conductor.pause();
     overlay.classList.remove('hide');
     overlay.innerHTML = '';
-    const settingsBox = el('div', { class: 'pause-settings hide' },
-      volumeRow(ctx),
-      el('div', { class: 'muted sm' }, 'More options in Settings on the main menu.'),
-    );
     overlay.append(
       el('div', { class: 'panel pause-panel' },
         el('h2', null, 'Paused'),
         el('button', { class: 'btn primary', onclick: () => resumeGame() }, 'Resume'),
         el('button', { class: 'btn', onclick: () => restart() }, 'Restart'),
-        el('button', { class: 'btn', onclick: () => settingsBox.classList.toggle('hide') }, '⚙ Settings'),
+        el('div', { class: 'pause-settings' }, volumeRow(ctx)),
         el('button', { class: 'btn danger', onclick: () => quit() }, 'Quit'),
-        settingsBox,
       ),
     );
   }

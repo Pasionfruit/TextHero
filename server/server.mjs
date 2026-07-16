@@ -114,6 +114,7 @@ function normalizeScore(body) {
   const player = cleanStr(body.player, 24).trim();
   if (!chartId || !player) return null;
   if (Number(body.rate) !== 1) return null; // only 1x runs are ranked
+  if (body.failed) return null; // failed runs are never ranked
   return {
     chartId,
     songId: cleanStr(body.songId, 128),
@@ -185,7 +186,7 @@ async function handleApi(req, res, url) {
       return sendJson(res, 400, { error: 'invalid JSON' });
     }
     const rec = normalizeScore(body);
-    if (!rec) return sendJson(res, 400, { error: 'invalid score payload (only 1x-rate runs are ranked)' });
+    if (!rec) return sendJson(res, 400, { error: 'invalid score payload (failed and non-1x-rate runs are not ranked)' });
 
     // keep each player's best run per chart
     const existing = stmtGet.get(rec.chartId, rec.player);

@@ -21,8 +21,13 @@ export class AudioEngine {
     this.master.gain.value = Math.min(1, Math.max(0, v));
   }
 
+  /** true while gameplay is deliberately paused (Conductor.pause suspends the
+   *  context) — blocks the global click/keydown unlock from resuming it */
+  pauseHold = false;
+
   /** AudioContext requires a user gesture on most browsers; call on any click/keydown. */
   async ensureRunning(): Promise<void> {
+    if (this.pauseHold) return;
     if (this.ctx.state !== 'running') {
       try {
         await this.ctx.resume();

@@ -66,13 +66,18 @@ export function resultsScreen(root: HTMLElement, ctx: AppCtx, params: ResultsPar
   let discarded = false;
   let watchBtn: HTMLButtonElement | null = null;
   if (params.scoreSavedId) {
+    // failed and non-1x runs never reach the global board; nothing is ever
+    // uploaded unless the player explicitly saves
+    const canGlobal = params.playParams.rate === 1 && !params.players[0].failed;
     const nameIn = el('input', { type: 'text', value: params.players[0].name, maxlength: '24', placeholder: 'Name for this run' });
-    const saveBtn = el('button', { class: 'btn primary' }, 'Save run') as HTMLButtonElement;
+    const saveBtn = el('button', { class: 'btn primary' }, canGlobal ? 'Save run' : 'Save locally') as HTMLButtonElement;
     const discardBtn = el('button', { class: 'btn danger' }, 'Discard run') as HTMLButtonElement;
     const statusEl = el('div', { class: 'muted' },
-      params.playParams.rate === 1
-        ? 'Save this run to the global leaderboard under a name of your choice, or discard it.'
-        : 'Only 1x-rate runs are ranked globally — saving keeps this run on this device only.');
+      canGlobal
+        ? 'Save this run to the global leaderboard under a name of your choice, or discard it. Nothing is uploaded unless you save.'
+        : params.players[0].failed
+          ? 'Failed runs are not ranked globally — saving keeps this run on this device only.'
+          : 'Only 1x-rate runs are ranked globally — saving keeps this run on this device only.');
     const panel = el('div', { class: 'panel' },
       el('h2', null, 'Save this run?'),
       el('div', { class: 'form-row' }, el('label', null, 'Player name'), nameIn),
@@ -109,8 +114,8 @@ export function resultsScreen(root: HTMLElement, ctx: AppCtx, params: ResultsPar
       } catch {
         /* local rename is best-effort */
       }
-      if (params.playParams.rate !== 1) {
-        finish(`Saved on this device as “${name}”.`);
+      if (!canGlobal) {
+        finish(`Saved on this device as “${name}”${params.players[0].failed ? ' — failed runs are not ranked globally' : ''}.`);
         return;
       }
       try {

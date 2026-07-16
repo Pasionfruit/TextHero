@@ -227,9 +227,13 @@ input[type="range"] { accent-color: var(--accent); padding: 0; border: none; bac
 }
 .play-overlay.hide { display: none; }
 .pause-panel { display: flex; flex-direction: column; gap: 10px; min-width: 260px; text-align: center; }
-.pause-settings { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 4px; text-align: left; }
+.pause-settings { border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 8px 0; text-align: left; }
 .pause-settings .form-row > label { min-width: 60px; }
-.pause-settings.hide { display: none; }
+.play-gear {
+  position: absolute; top: 10px; left: 10px; z-index: 6;
+  font-size: 16px; line-height: 1; padding: 7px 10px;
+  background: rgba(19, 21, 27, 0.85); color: #edeff4; border-color: rgba(255, 255, 255, 0.12);
+}
 .play-topbar { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 5; }
 .replay-bar { display: flex; gap: 8px; align-items: center; background: rgba(19, 21, 27, 0.92); border-radius: 10px; padding: 6px 14px; }
 .play-leaderboard {

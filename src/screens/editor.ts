@@ -6,6 +6,7 @@ import { analyzeSong, generateNotes, type SongAnalysis } from '../charts/autocha
 import { clamp, codeLabel, download, el, fitCanvas, fmtTime, toast } from '../util';
 import { Conductor } from '../engine/Conductor';
 import { isLightTheme, laneColor } from '../store/settings';
+import { icon } from '../ui/icons';
 import { row, selectInput } from './songselect';
 import { adminToken, publishCharts } from '../net/api';
 
@@ -76,7 +77,8 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
   const status = el('div', { class: 'editor-status' });
 
   // transport scrubber: jump anywhere in the song while placing notes
-  const scrubPlayBtn = el('button', { class: 'btn sm', title: 'Play/pause (Space)', onclick: () => togglePlay() }, '⏵');
+  const scrubPlayBtn = el('button', { class: 'btn sm', title: 'Play/pause (Space)', onclick: () => togglePlay() }, icon('play'));
+  let scrubBtnShowsPause = false;
   const scrubNow = el('span', { class: 'scrub-time' }, '0:00.000');
   const scrubTotal = el('span', { class: 'scrub-time' }, '–:––');
   const scrubFill = el('div', { class: 'scrub-fill' });
@@ -180,17 +182,17 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
       el('span', { class: 'sep' }),
       el('span', { class: 'muted sm' }, 'Snap'),
       selectInput(Object.keys(SNAPS), snapKey, (v) => (snapKey = v)),
-      el('button', { class: 'btn sm', onclick: () => (pxPerBeat = clamp(pxPerBeat * 1.25, 12, 320)) }, '🔍+'),
-      el('button', { class: 'btn sm', onclick: () => (pxPerBeat = clamp(pxPerBeat / 1.25, 12, 320)) }, '🔍−'),
+      el('button', { class: 'btn sm', title: 'Zoom in', onclick: () => (pxPerBeat = clamp(pxPerBeat * 1.25, 12, 320)) }, icon('zoomin')),
+      el('button', { class: 'btn sm', title: 'Zoom out', onclick: () => (pxPerBeat = clamp(pxPerBeat / 1.25, 12, 320)) }, icon('zoomout')),
       el('span', { class: 'sep' }),
-      el('button', { class: 'btn sm', onclick: () => togglePlay() }, '⏯ Play'),
-      el('button', { class: 'btn sm' + (recording ? ' danger' : ''), title: 'Play the song and tap your lanes to place notes live', onclick: () => toggleRecord() }, recording ? '⏹ Stop rec' : '⏺ Record'),
-      el('button', { class: 'btn sm primary', onclick: () => testPlay() }, '▶ Test (F5)'),
+      el('button', { class: 'btn sm', onclick: () => togglePlay() }, icon('play'), 'Play'),
+      el('button', { class: 'btn sm' + (recording ? ' danger' : ''), title: 'Play the song and tap your lanes to place notes live', onclick: () => toggleRecord() }, icon(recording ? 'stop' : 'record'), recording ? 'Stop rec' : 'Record'),
+      el('button', { class: 'btn sm primary', onclick: () => testPlay() }, icon('play'), 'Test (F5)'),
       el('button', {
         class: 'btn sm' + (isAdmin ? ' primary' : ''),
         title: isAdmin ? 'Save and publish as the version all players play' : 'Save locally',
         onclick: () => void save(),
-      }, isAdmin ? '📤 Save & Publish' : '💾 Save'),
+      }, icon(isAdmin ? 'upload' : 'save'), isAdmin ? 'Save & Publish' : 'Save'),
       el('button', { class: 'btn sm', onclick: () => exportChart() }, 'Export'),
     );
 
@@ -239,7 +241,7 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
       el('button', {
         class: 'btn sm',
         onclick: () => void autoFill(),
-      }, '✨ Auto-fill'),
+      }, icon('sparkle'), 'Auto-fill'),
       el('button', {
         class: 'btn sm danger',
         onclick: () => {
@@ -830,9 +832,12 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
     scrubFill.style.width = `${frac * 100}%`;
     scrubHandle.style.left = `${frac * 100}%`;
     scrubNow.textContent = fmtTime(posMs);
-    scrubPlayBtn.textContent = playing ? '⏸' : '⏵';
+    if (playing !== scrubBtnShowsPause) {
+      scrubBtnShowsPause = playing;
+      scrubPlayBtn.replaceChildren(icon(playing ? 'pause' : 'play'));
+    }
 
-    status.textContent = `${recording ? '⏺ REC · ' : ''}${fmtTime(beatToMs(song, playheadBeat))} · beat ${playheadBeat.toFixed(2)} · ${notes.length} notes · ${selection.size} selected — ${recording ? 'tap your lanes to place notes · hold for hold notes · Esc: stop recording' : 'click: place · drag down: hold · right-click: delete · shift-drag: box select · ctrl+C/V copy/paste · ctrl+Z undo · space: play · ⏺: record taps · F5: test'}`;
+    status.textContent = `${recording ? '● REC · ' : ''}${fmtTime(beatToMs(song, playheadBeat))} · beat ${playheadBeat.toFixed(2)} · ${notes.length} notes · ${selection.size} selected — ${recording ? 'tap your lanes to place notes · hold for hold notes · Esc: stop recording' : 'click: place · drag down: hold · right-click: delete · shift-drag: box select · ctrl+C/V copy/paste · ctrl+Z undo · space: play · rec: record taps · F5: test'}`;
   }
 
   // ---- song loading / switching ----

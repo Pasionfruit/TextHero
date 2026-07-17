@@ -2,6 +2,7 @@ import type { AppCtx, PlayParams, PlayerSetup, Screen } from '../app';
 import type { ChartData, SongData } from '../types';
 import { b64ToBlob, blobToB64 } from '../net/NetClient';
 import { modeLabel } from '../charts/chart';
+import { icon } from '../ui/icons';
 import { codeLabel, el, toast } from '../util';
 import { checkbox, row, selectInput } from './songselect';
 
@@ -215,7 +216,7 @@ export function lobbyScreen(root: HTMLElement, ctx: AppCtx, _params: any): Scree
     const playersBox = el('div', { class: 'panel' }, el('h3', null, `Lobby ${lobby.code} ${lobby.isPublic ? '(public)' : '(private)'}`));
     for (const p of lobby.players) {
       playersBox.append(el('div', { class: 'lb-row' },
-        el('span', null, `${p.name}${p.id === lobby.hostId ? ' 👑' : ''}${p.id === lobby.youId ? ' (you)' : ''}`),
+        el('span', null, p.name, p.id === lobby.hostId && icon('crown', 12), p.id === lobby.youId ? ' (you)' : ''),
         el('span', { class: p.ready ? 'ok' : 'muted' }, p.id === lobby.hostId ? 'host' : p.ready ? 'READY' : 'not ready'),
       ));
     }

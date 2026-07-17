@@ -38,7 +38,12 @@ async function boot(): Promise<void> {
   const demo = demoSongData();
   const existingDemo = await db.get('songs', demo.id);
   if (!existingDemo) await db.put('songs', demo);
-  else if (!existingDemo.genre) await db.put('songs', { ...existingDemo, genre: demo.genre });
+  else {
+    const patch: Partial<typeof demo> = {};
+    if (!existingDemo.genre) patch.genre = demo.genre;
+    if (existingDemo.artist === 'TextHero (built-in)') patch.artist = demo.artist; // rebrand migration
+    if (Object.keys(patch).length) await db.put('songs', { ...existingDemo, ...patch });
+  }
   for (const chart of buildDemoCharts()) {
     if (!(await db.get('charts', chart.id))) await db.put('charts', chart);
   }

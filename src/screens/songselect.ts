@@ -4,6 +4,7 @@ import { DEMO_SONG_ID, makeEmptyChart, modeLabel } from '../charts/chart';
 import { analyzeSong, estimateGrid, generateSampleCharts } from '../charts/autochart';
 import { adminDeleteScore, adminToken, adminUpdateScore, fetchLeaderboard, type LeaderboardEntry } from '../net/api';
 import { isBundledSong, LIBRARY_CHANGED_EVENT } from '../store/bundled';
+import { icon } from '../ui/icons';
 import { syncPublishedCharts } from '../store/publish';
 import { clamp, el, fmtDur, fmtPct, toast, uid } from '../util';
 
@@ -28,7 +29,7 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
   const filterIn = el('input', {
     type: 'search',
     class: 'song-filter',
-    placeholder: '🔎 Filter by title or artist…',
+    placeholder: 'Filter by title or artist…',
     oninput: (e: Event) => {
       filterText = (e.target as HTMLInputElement).value.trim().toLowerCase();
       renderList();
@@ -100,8 +101,8 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
           void toggleCardPreview(song);
         },
       },
-        song.artDataUrl ? el('img', { src: song.artDataUrl, class: 'song-art' }) : el('div', { class: 'song-art placeholder' }, '♪'),
-        el('div', { class: 'art-play' + (previewing ? ' on' : '') }, previewing ? '■' : '▶'),
+        song.artDataUrl ? el('img', { src: song.artDataUrl, class: 'song-art' }) : el('div', { class: 'song-art placeholder' }, icon('note', 18)),
+        el('div', { class: 'art-play' + (previewing ? ' on' : '') }, icon(previewing ? 'stop' : 'play', 16)),
       );
       const card = el('div', { class: 'song-card' + (song.id === selectedSong?.id ? ' active' : ''), onclick: () => void selectSong(song) },
         art,
@@ -307,7 +308,7 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
                 el('td', null, String(sc.maxCombo)),
                 el('td', { class: 'muted' }, new Date(sc.dateIso).toLocaleDateString()),
                 isAdmin && el('td', null,
-                  el('button', { class: 'btn sm', title: 'Edit entry', onclick: () => adminEditDialog(sc) }, '✎'),
+                  el('button', { class: 'btn sm', title: 'Edit entry', onclick: () => adminEditDialog(sc) }, icon('pencil')),
                   ' ',
                   el('button', {
                     class: 'btn sm danger',
@@ -322,7 +323,7 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
                         toast(`Delete failed: ${(err as Error).message}`);
                       }
                     },
-                  }, '✕'),
+                  }, icon('x')),
                 ),
               ),
             );
@@ -379,7 +380,7 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
                         };
                         ctx.nav('play', play);
                       },
-                    }, '▶ watch')
+                    }, icon('play'), 'Watch')
                   : '',
               ),
             ),

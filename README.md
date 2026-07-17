@@ -1,6 +1,8 @@
-# TextHero
+# Type-to-Beat
 
 A highly customizable keyboard rhythm game inspired by **DDR**, **Guitar Hero / Clone Hero**, and **osu!mania** — built with TypeScript, Canvas, and the Web Audio API. Runs in any modern browser on Windows, macOS, and Linux.
+
+Title typeface: [Kinder Child Kawaii Bubble](https://www.fontspace.com/kinder-child-kawaii-bubble-font-f160403) by GraphicSauce — bundled under its free-for-personal-use license; a commercial license from the author is required before shipping this game commercially. UI glyphs are inline SVG icons (no emoji).
 
 It ships with **Neon Circuit**, a built-in demo song that is *synthesized at runtime* (no audio assets), with five-key charts in all four difficulties, a full-keyboard chart, and two Letters-mode charts — so the game is playable the moment you start it.
 

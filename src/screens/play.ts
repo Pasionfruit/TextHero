@@ -6,6 +6,7 @@ import { Playfield } from '../render/Playfield';
 import { compileNotes, laneCountOf, LETTERS } from '../charts/chart';
 import { multiplierFor } from '../types';
 import type { JudgeEvent, ReplayData, ReplayEventRec, ScoreRecord } from '../types';
+import { icon } from '../ui/icons';
 import { clamp, codeLabel, el, fmtTime, toast, uid } from '../util';
 import { volumeRow } from './settings';
 
@@ -62,7 +63,7 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
         class: 'btn sm play-gear',
         title: 'Pause — resume, restart, volume (Esc)',
         onclick: () => (paused ? resumeGame() : pauseGame()),
-      }, '⚙'),
+      }, icon('gear', 16)),
     );
   }
   root.append(wrap);
@@ -248,10 +249,10 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
   if (isReplay) {
     const bar = el('div', { class: 'replay-bar' },
       el('span', { class: 'muted' }, `REPLAY — ${replay!.player}`),
-      el('button', { class: 'btn sm', onclick: () => (paused ? resumeGame() : pauseGame2()) }, '⏯'),
+      el('button', { class: 'btn sm', title: 'Play/pause', onclick: () => (paused ? resumeGame() : pauseGame2()) }, icon('pause')),
       el('button', { class: 'btn sm', onclick: () => seekReplay(-5000) }, '-5s'),
       el('button', { class: 'btn sm', onclick: () => seekReplay(5000) }, '+5s'),
-      el('button', { class: 'btn sm', onclick: () => seekReplayTo(0) }, '⏮'),
+      el('button', { class: 'btn sm', title: 'Back to start', onclick: () => seekReplayTo(0) }, icon('rewind')),
       el('button', { class: 'btn sm danger', onclick: () => finish() }, 'Exit'),
     );
     topBar.append(bar);
@@ -373,7 +374,7 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
       lbBox.append(
         el('div', { class: 'lb-row' },
           el('span', { class: 'lb-name' }, r.name),
-          el('span', null, `${r.score}  ${(r.accuracy * 100).toFixed(1)}%  x${r.multiplier ?? 1}  ${r.combo}⛓`),
+          el('span', null, `${r.score}  ${(r.accuracy * 100).toFixed(1)}%  x${r.multiplier ?? 1}  ${r.combo}`),
         ),
       );
     }

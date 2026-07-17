@@ -3,6 +3,10 @@ export const uid = (): string =>
 
 export const clamp = (v: number, a: number, b: number): number => Math.min(b, Math.max(a, v));
 
+/** True on touch-first devices (phones/tablets): tap gameplay, no chart editor. */
+export const isMobile = (): boolean =>
+  (navigator.maxTouchPoints > 0 || 'ontouchstart' in window) && window.matchMedia('(pointer: coarse)').matches;
+
 export function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return () => {

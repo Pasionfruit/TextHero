@@ -3,7 +3,7 @@ import type { ChartData, Difficulty, GameMode, NoteData, SongData } from '../typ
 import { DIFFICULTIES } from '../types';
 import { beatToMs, laneCountOf, LETTERS, makeEmptyChart, modeLabel, msToBeat } from '../charts/chart';
 import { analyzeSong, generateNotes, type SongAnalysis } from '../charts/autochart';
-import { clamp, codeLabel, download, el, fitCanvas, fmtTime, toast } from '../util';
+import { clamp, codeLabel, download, el, fitCanvas, fmtTime, isMobile, toast } from '../util';
 import { Conductor } from '../engine/Conductor';
 import { isLightTheme, laneColor } from '../store/settings';
 import { icon } from '../ui/icons';
@@ -35,6 +35,12 @@ type Drag =
   | null;
 
 export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: string; resume?: EditorResume }): Screen {
+  // charting needs a physical keyboard — not available on touch devices
+  if (isMobile()) {
+    toast('The chart editor needs a keyboard — open Type-to-Beat on a desktop.');
+    setTimeout(() => ctx.nav('menu'), 0); // deferred: nav() is mid-flight right now
+    return { destroy() {} };
+  }
   root.innerHTML = '';
   const s = ctx.settings;
   const conductor = new Conductor(ctx.audio);

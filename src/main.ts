@@ -136,3 +136,11 @@ async function boot(): Promise<void> {
 }
 
 void boot();
+
+// PWA: register the service worker in production builds only (it would fight
+// Vite's dev-server HMR otherwise)
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker.register('/sw.js').catch(() => {});
+  });
+}

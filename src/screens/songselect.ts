@@ -6,7 +6,7 @@ import { adminDeleteRecommendation, adminDeleteScore, adminToken, adminUpdateSco
 import { isBundledSong, LIBRARY_CHANGED_EVENT } from '../store/bundled';
 import { icon } from '../ui/icons';
 import { syncPublishedCharts } from '../store/publish';
-import { clamp, el, fmtDur, fmtPct, toast, uid } from '../util';
+import { clamp, el, fmtDur, fmtPct, isMobile, toast, uid } from '../util';
 
 export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: string }): Screen {
   root.innerHTML = '';
@@ -232,6 +232,8 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
     charts = (await ctx.db.chartsForSong(song.id)).sort(
       (a, b) => a.mode.localeCompare(b.mode) || diffOrder(a.difficulty) - diffOrder(b.difficulty),
     );
+    // touch devices tap five lanes — keyboard/letters charts need a keyboard
+    if (isMobile()) charts = charts.filter((c) => c.mode === 'five');
     selectedChart = charts.find((c) => c.id === selectedChart?.id) ?? charts[0] ?? null;
     await renderDetail();
 
@@ -245,6 +247,7 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
         charts = (await ctx.db.chartsForSong(syncId)).sort(
           (a, b) => a.mode.localeCompare(b.mode) || diffOrder(a.difficulty) - diffOrder(b.difficulty),
         );
+        if (isMobile()) charts = charts.filter((c) => c.mode === 'five');
         selectedChart = charts.find((c) => c.id === selectedChart?.id) ?? charts[0] ?? null;
         await renderDetail();
       }
@@ -265,7 +268,7 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
           el('div', { class: 'muted' }, `${song.artist} · ${song.genre ? `${song.genre} · ` : ''}${song.bpm} BPM · ${fmtDur(song.durationMs)}`),
         ),
         el('div', { class: 'btn-row' },
-          el('button', { class: 'btn sm', title: 'Edit charts', onclick: () => ctx.nav('editor', { songId: song.id }) }, icon('pencil')),
+          !isMobile() && el('button', { class: 'btn sm', title: 'Edit charts', onclick: () => ctx.nav('editor', { songId: song.id }) }, icon('pencil')),
           song.id !== DEMO_SONG_ID && !isBundledSong(song.id) &&
             el('button', {
               class: 'btn sm danger',

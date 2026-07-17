@@ -608,6 +608,9 @@ const MIME = {
   '.map': 'application/json',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
+  '.webmanifest': 'application/manifest+json',
+  '.mp3': 'audio/mpeg',
+  '.otf': 'font/otf',
   '.ico': 'image/x-icon',
   '.woff2': 'font/woff2',
 };

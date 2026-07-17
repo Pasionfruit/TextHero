@@ -1,6 +1,6 @@
 import type { AppCtx, Screen } from '../app';
 import { HOVER_SFX, PLAY_SFX } from '../audio/uiSounds';
-import { el } from '../util';
+import { el, isMobile } from '../util';
 
 export function menuScreen(root: HTMLElement, ctx: AppCtx, _params: any): Screen {
   root.innerHTML = '';
@@ -23,7 +23,7 @@ export function menuScreen(root: HTMLElement, ctx: AppCtx, _params: any): Screen
     el('div', { class: 'menu-list' },
       item('Play', () => ctx.nav('songselect'), PLAY_SFX),
       item('Multiplayer', () => ctx.nav('lobby')),
-      item('Chart Editor', () => ctx.nav('editor')),
+      !isMobile() && item('Chart Editor', () => ctx.nav('editor')),
       item('Settings', () => ctx.nav('settings')),
     ),
     el('div', { class: 'muted sm menu-foot' },

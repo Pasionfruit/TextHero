@@ -8,7 +8,7 @@ import { multiplierFor } from '../types';
 import type { JudgeEvent, ReplayData, ReplayEventRec, ScoreRecord } from '../types';
 import { applyTheme } from '../store/settings';
 import { icon } from '../ui/icons';
-import { clamp, codeLabel, el, fmtTime, toast, uid } from '../util';
+import { clamp, codeLabel, el, fmtTime, isMobile, toast, uid } from '../util';
 import { volumeRow } from './settings';
 
 interface BandState {
@@ -72,11 +72,13 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
   const labelsFor = (codes?: string[]): string[] =>
     chart.mode === 'keyboard' ? chart.keys : chart.mode === 'letters' ? [] : (codes ?? s.bindings[0]).map(codeLabel);
 
+  const canvases: HTMLCanvasElement[] = [];
   for (let i = 0; i < players.length; i++) {
     const holder = el('div', { class: 'play-field' });
     const canvas = el('canvas');
     holder.append(canvas);
     fieldRow.append(holder);
+    canvases.push(canvas);
     playfields.push(new Playfield(canvas, { mode: chart.mode, laneCount, labels: labelsFor(players[i].codes ?? s.bindings[i]) }, s));
   }
 
@@ -153,7 +155,19 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
     };
   }
 
-  // ---- input ----
+  // ---- input (keyboard everywhere; lane taps on touch devices) ----
+  const handleInput = (player: number, lane: number, down: boolean, ts: number): void => {
+    if (paused || ended) return;
+    const sess = sessions[player];
+    if (!sess || sess.failed || bandState?.failed) return;
+    const t = conductor.eventMs(ts);
+    playfields[player].pressLane(lane, down);
+    if (t < startMs - 400) return; // count-in: light up receptors but don't judge
+    if (player === 0 && players.length === 1) recorded.push({ t, lane, down });
+    if (down) sess.press(lane, t);
+    else sess.release(lane, t);
+  };
+
   if (!isReplay) {
     if (chart.mode === 'five') {
       players.forEach((p, i) => input.bindFive(i, p.codes ?? s.bindings[i] ?? s.bindings[0]));
@@ -162,17 +176,37 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
     } else {
       input.bindKeys(0, LETTERS.split('')); // letters mode: lane index == letter index
     }
-    input.attach((player, lane, down, ts) => {
-      if (paused || ended) return;
-      const sess = sessions[player];
-      if (!sess || sess.failed || bandState?.failed) return;
-      const t = conductor.eventMs(ts);
-      playfields[player].pressLane(lane, down);
-      if (t < startMs - 400) return; // count-in: light up receptors but don't judge
-      if (player === 0 && players.length === 1) recorded.push({ t, lane, down });
-      if (down) sess.press(lane, t);
-      else sess.release(lane, t);
-    });
+    input.attach(handleInput);
+
+    // mobile: the field is split into equal tap columns, one per lane;
+    // multi-touch works so chords and holds play naturally
+    if (isMobile() && canvases[0]) {
+      const cv = canvases[0];
+      const touchLane = new Map<number, number>();
+      const laneAt = (clientX: number): number => {
+        const r = cv.getBoundingClientRect();
+        return clamp(Math.floor(((clientX - r.left) / r.width) * laneCount), 0, laneCount - 1);
+      };
+      const onTouch = (e: TouchEvent): void => {
+        e.preventDefault();
+        const down = e.type === 'touchstart';
+        for (const t of Array.from(e.changedTouches)) {
+          if (down) {
+            const lane = laneAt(t.clientX);
+            touchLane.set(t.identifier, lane);
+            (window as any).__lastTouchLane = lane; // debug/testing hook
+            handleInput(0, lane, true, e.timeStamp);
+          } else {
+            const lane = touchLane.get(t.identifier);
+            touchLane.delete(t.identifier);
+            if (lane !== undefined) handleInput(0, lane, false, e.timeStamp);
+          }
+        }
+      };
+      cv.addEventListener('touchstart', onTouch, { passive: false });
+      cv.addEventListener('touchend', onTouch, { passive: false });
+      cv.addEventListener('touchcancel', onTouch, { passive: false });
+    }
   }
 
   // ---- pause menu / hotkeys ----

@@ -6,6 +6,7 @@ import { Playfield } from '../render/Playfield';
 import { compileNotes, laneCountOf, LETTERS } from '../charts/chart';
 import { multiplierFor } from '../types';
 import type { JudgeEvent, ReplayData, ReplayEventRec, ScoreRecord } from '../types';
+import { COUNTDOWN_SFX, START_SFX } from '../audio/uiSounds';
 import { applyTheme } from '../store/settings';
 import { icon } from '../ui/icons';
 import { clamp, codeLabel, el, fmtTime, isMobile, toast, uid } from '../util';
@@ -26,6 +27,9 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
   const noFail = params.noFail || params.practice || !!params.test || isReplay;
   const laneCount = laneCountOf(chart);
   const s = ctx.settings;
+
+  // game-start fanfare for real runs (solo + multiplayer; not replays/test-play)
+  if (!isReplay && !params.test && s.uiSounds) void ctx.audio.playUiSound(START_SFX, 0.8);
 
   const conductor = new Conductor(ctx.audio);
   const input = new InputRouter();
@@ -270,6 +274,7 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
   function resumeGame(fromNet = false): void {
     if (!paused) return;
     if (!fromNet && params.online && ctx.net.isConnected()) ctx.net.send('pause', { paused: false });
+    if (!isReplay && s.uiSounds) void ctx.audio.playUiSound(COUNTDOWN_SFX, 0.7);
     overlay.classList.add('hide');
     void conductor.resume().then(() => {
       paused = false;
@@ -439,6 +444,7 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
 
   function startPlayback(fromMs: number, leadInMs: number): void {
     if (!buffer) return;
+    if (!isReplay && s.uiSounds) void ctx.audio.playUiSound(COUNTDOWN_SFX, 0.7);
     conductor.play(buffer, { fromMs, rate, leadInMs });
     // lock latency compensation now the context is running + source scheduled,
     // so the first note is judged exactly when it reaches the line

@@ -53,10 +53,15 @@ export async function fetchLeaderboard(s: Settings, chartId: string, limit = 10)
   return (await res.json()).scores as LeaderboardEntry[];
 }
 
+/** "MrPasionfruit" is reserved for the admin (Midnight). */
+export const nameAllowed = (name: string): boolean =>
+  name.trim().toLowerCase() !== 'mrpasionfruit' || !!adminToken();
+
 export async function submitScore(s: Settings, sub: ScoreSubmission): Promise<SubmitResult> {
+  const token = adminToken();
   const res = await fetch(`${apiBase(s)}/api/scores`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
     body: JSON.stringify(sub),
     signal: AbortSignal.timeout(8000),
   });
@@ -117,6 +122,45 @@ export async function publishCharts(s: Settings, song: SongData, charts: ChartDa
   if (res.status === 401) clearAdminToken();
   if (!res.ok || !data?.ok) throw new Error(data?.error || `Publish failed (${res.status})`);
   return data.published as number;
+}
+
+// ---- song recommendations ----
+
+export interface Recommendation {
+  id: number;
+  title: string;
+  artist: string;
+  player: string;
+  dateIso: string;
+}
+
+export async function fetchRecommendations(s: Settings): Promise<Recommendation[]> {
+  const res = await fetch(`${apiBase(s)}/api/recommendations`, { signal: AbortSignal.timeout(6000) });
+  if (!res.ok) throw new Error(`Request failed (${res.status})`);
+  return (await res.json()).recommendations as Recommendation[];
+}
+
+export async function submitRecommendation(s: Settings, title: string, artist: string, player: string): Promise<void> {
+  const res = await fetch(`${apiBase(s)}/api/recommendations`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ title, artist, player }),
+    signal: AbortSignal.timeout(8000),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !data?.ok) throw new Error(data?.error || `Request failed (${res.status})`);
+}
+
+export async function adminDeleteRecommendation(s: Settings, id: number): Promise<void> {
+  const token = adminToken();
+  if (!token) throw new Error('Not logged in as admin');
+  const res = await fetch(`${apiBase(s)}/api/recommendations?id=${id}`, {
+    method: 'DELETE',
+    headers: { authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(8000),
+  });
+  const data = await res.json().catch(() => null);
+  if (!res.ok || !data?.ok) throw new Error(data?.error || `Request failed (${res.status})`);
 }
 
 // ---- admin ----

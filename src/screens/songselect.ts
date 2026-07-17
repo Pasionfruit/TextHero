@@ -2,7 +2,7 @@ import type { AppCtx, PlayParams, Screen } from '../app';
 import type { ChartData, ScoreRecord, SongData } from '../types';
 import { DEMO_SONG_ID, makeEmptyChart, modeLabel } from '../charts/chart';
 import { analyzeSong, estimateGrid, generateSampleCharts } from '../charts/autochart';
-import { adminDeleteScore, adminToken, adminUpdateScore, fetchLeaderboard, type LeaderboardEntry } from '../net/api';
+import { adminDeleteRecommendation, adminDeleteScore, adminToken, adminUpdateScore, fetchLeaderboard, fetchRecommendations, submitRecommendation, type LeaderboardEntry } from '../net/api';
 import { isBundledSong, LIBRARY_CHANGED_EVENT } from '../store/bundled';
 import { icon } from '../ui/icons';
 import { syncPublishedCharts } from '../store/publish';
@@ -10,7 +10,7 @@ import { clamp, el, fmtDur, fmtPct, toast, uid } from '../util';
 
 export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: string }): Screen {
   root.innerHTML = '';
-  const page = el('div', { class: 'page wide' });
+  const page = el('div', { class: 'page wide songselect' });
   root.append(page);
 
   let songs: SongData[] = [];
@@ -18,14 +18,23 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
   let selectedSong: SongData | null = null;
   let selectedChart: ChartData | null = null;
 
-  const header = el('div', { class: 'row spread' },
-    el('h1', { class: 'page-title' }, 'Song Select'),
-    el('div', { class: 'btn-row' },
-      el('button', { class: 'btn', onclick: () => uploadDialog() }, '+ Upload song'),
-      el('button', { class: 'btn', onclick: () => ctx.nav('menu') }, 'Back'),
+  // header mirrors the two-column grid below so "Song Select" starts exactly
+  // at the left edge of the song column
+  const header = el('div', { class: 'select-head' },
+    el('div', { class: 'row' },
+      el('button', { class: 'btn back-btn', title: 'Back to menu (Esc)', onclick: () => ctx.nav('menu') }, icon('chevronleft', 18)),
+      el('div', { class: 'site-title' }, el('span', { class: 'logo-text' }, 'Type-to-'), el('span', { class: 'logo-hero' }, 'Beat')),
+    ),
+    el('div', { class: 'row head-right' },
+      el('h1', { class: 'page-title' }, 'Song Select'),
+      el('div', { class: 'col-btns' },
+        el('button', { class: 'btn sm', title: 'Suggest a song for the library', onclick: () => recommendDialog() }, 'Suggest', icon('sparkle')),
+        el('button', { class: 'btn sm', title: 'Upload a song', onclick: () => uploadDialog() }, 'Upload ', icon('note'), '+'),
+      ),
     ),
   );
   let filterText = '';
+  let filterGenre = '';
   const filterIn = el('input', {
     type: 'search',
     class: 'song-filter',
@@ -35,22 +44,39 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
       renderList();
     },
   });
+  const genreSel = el('select', {
+    class: 'genre-filter',
+    onchange: (e: Event) => {
+      filterGenre = (e.target as HTMLSelectElement).value;
+      renderList();
+    },
+  });
   const listBox = el('div', { class: 'song-list' });
   const detailBox = el('div', { class: 'song-detail' });
   page.append(header, el('div', { class: 'select-cols' },
-    el('div', null, filterIn, listBox, el('div', { class: 'muted sm wheel-hint' }, 'Scroll / ↑ ↓ to browse · Enter to play')),
     detailBox,
+    el('div', { class: 'song-col' }, filterIn, genreSel, listBox, el('div', { class: 'muted sm wheel-hint' }, '↑ ↓ to browse · Enter to play')),
   ));
 
+  function rebuildGenreOptions(): void {
+    const genres = [...new Set(songs.map((x) => x.genre).filter(Boolean))].sort() as string[];
+    if (filterGenre && !genres.includes(filterGenre)) filterGenre = '';
+    genreSel.replaceChildren(
+      el('option', { value: '', selected: filterGenre === '' }, 'All genres'),
+      ...genres.map((g) => el('option', { value: g, selected: g === filterGenre }, g)),
+    );
+  }
+
   const visibleSongs = (): SongData[] =>
-    filterText
-      ? songs.filter((x) => `${x.title} ${x.artist}`.toLowerCase().includes(filterText))
-      : songs;
+    songs.filter((x) =>
+      (!filterGenre || x.genre === filterGenre) &&
+      (!filterText || `${x.title} ${x.artist}`.toLowerCase().includes(filterText)));
 
   const s = ctx.settings;
 
   async function refresh(keepSongId?: string): Promise<void> {
     songs = (await ctx.db.songs()).sort((a, b) => a.title.localeCompare(b.title));
+    rebuildGenreOptions();
     const want = keepSongId ?? params.songId ?? selectedSong?.id;
     selectedSong = songs.find((x) => x.id === want) ?? songs[0] ?? null;
     renderList();
@@ -111,6 +137,14 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
           el('div', { class: 'muted' }, song.artist),
           el('div', { class: 'muted sm' }, `${song.genre ? `${song.genre} · ` : ''}${fmtDur(song.durationMs)} · ${song.bpm} BPM`),
         ),
+        el('button', {
+          class: 'btn primary card-play',
+          title: 'Play — pick difficulty & modifiers',
+          onclick: (e: Event) => {
+            e.stopPropagation();
+            void selectSong(song).then(() => playSetupDialog(song));
+          },
+        }, icon('play', 16)),
       );
       if (song.id === selectedSong?.id) activeCard = card;
       listBox.append(card);
@@ -120,8 +154,7 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
     activeCard?.scrollIntoView({ block: 'nearest' });
   }
 
-  // GH-style browsing: the wheel steps the selection instead of the scrollbar,
-  // and arrow keys / Enter work anywhere on the screen
+  // arrow keys step the selection; Enter opens play setup (the wheel just scrolls)
   function stepSelection(dir: number): void {
     const visible = visibleSongs();
     if (!visible.length) return;
@@ -129,18 +162,6 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
     const next = idx < 0 ? 0 : clamp(idx + dir, 0, visible.length - 1);
     if (next !== idx) void selectSong(visible[next]);
   }
-
-  let wheelAcc = 0;
-  listBox.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    wheelAcc += e.deltaY;
-    const STEP = 80; // one song per notch, smooth for trackpads
-    while (Math.abs(wheelAcc) >= STEP) {
-      const dir = wheelAcc > 0 ? 1 : -1;
-      wheelAcc -= dir * STEP;
-      stepSelection(dir);
-    }
-  }, { passive: false });
 
   const onNavKey = (e: KeyboardEvent): void => {
     const tag = (e.target as HTMLElement).tagName;
@@ -150,7 +171,10 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
       e.preventDefault();
       stepSelection(e.code === 'ArrowDown' ? 1 : -1);
     } else if (e.code === 'Enter') {
-      (detailBox.querySelector('.btn.primary.big') as HTMLButtonElement | null)?.click();
+      if (selectedSong) {
+        e.preventDefault();
+        playSetupDialog(selectedSong);
+      }
     } else if (e.code === 'Escape') {
       ctx.nav('menu');
     }
@@ -198,11 +222,29 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
     if (!song) return;
 
     detailBox.append(
-      el('h2', null, song.title),
-      el('div', { class: 'muted' }, `${song.artist} · ${song.genre ? `${song.genre} · ` : ''}${song.bpm} BPM · ${fmtDur(song.durationMs)}`),
+      el('div', { class: 'row spread' },
+        el('div', null,
+          el('h2', null, song.title),
+          el('div', { class: 'muted' }, `${song.artist} · ${song.genre ? `${song.genre} · ` : ''}${song.bpm} BPM · ${fmtDur(song.durationMs)}`),
+        ),
+        el('div', { class: 'btn-row' },
+          el('button', { class: 'btn sm', title: 'Edit charts', onclick: () => ctx.nav('editor', { songId: song.id }) }, icon('pencil')),
+          song.id !== DEMO_SONG_ID && !isBundledSong(song.id) &&
+            el('button', {
+              class: 'btn sm danger',
+              onclick: async () => {
+                if (!confirm(`Delete "${song.title}" and all its charts/scores?`)) return;
+                await ctx.db.deleteSong(song.id);
+                selectedChart = null;
+                await refresh();
+                toast('Song deleted');
+              },
+            }, icon('x'), 'Delete'),
+        ),
+      ),
     );
 
-    // chart chips
+    // difficulty filter for the leaderboards below
     const chips = el('div', { class: 'chip-row' });
     for (const c of charts) {
       chips.append(
@@ -212,72 +254,10 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
             selectedChart = c;
             void renderDetail();
           },
-        }, `${modeLabel(c.mode)} · ${c.difficulty} (${c.notes.length})`),
+        }, `${modeLabel(c.mode)} · ${c.difficulty}`),
       );
     }
-    chips.append(el('button', { class: 'chip', onclick: () => ctx.nav('editor', { songId: song.id }) }, '+ edit / new chart'));
-    detailBox.append(chips);
-
-    // modifiers
-    const mods = el('details', { class: 'panel' },
-      el('summary', null, 'Modifiers'),
-      row('Scroll speed', numInput(s.scrollSpeed, 0.25, 4, 0.25, (v) => (s.scrollSpeed = v))),
-      row('Direction', selectInput(['down', 'up'], s.scrollDirection, (v) => (s.scrollDirection = v as any))),
-      row('Reverse', checkbox(s.reverse, (v) => (s.reverse = v))),
-      row('Hidden', checkbox(s.hidden, (v) => (s.hidden = v))),
-      row('Sudden', checkbox(s.sudden, (v) => (s.sudden = v))),
-      row('No Fail', checkbox(noFail, (v) => (noFail = v))),
-    );
-    detailBox.append(mods);
-
-    // practice
-    const practicePanel = el('details', { class: 'panel', open: practice },
-      el('summary', null, 'Practice'),
-      row('Practice mode', checkbox(practice, (v) => (practice = v))),
-      row('Speed', selectInput(['0.5', '0.75', '1', '1.25', '1.5'], String(practiceRate), (v) => (practiceRate = Number(v)))),
-      row('Loop start (s)', numInput(loopStart ?? 0, 0, song.durationMs / 1000, 1, (v) => (loopStart = v))),
-      row('Loop end (s, 0=off)', numInput(loopEnd ?? 0, 0, song.durationMs / 1000, 1, (v) => (loopEnd = v))),
-      el('div', { class: 'muted sm' }, 'In practice: [ sets loop start, ] sets loop end, \\ clears. Scores are not saved.'),
-    );
-    detailBox.append(practicePanel);
-
-    // actions
-    detailBox.append(
-      el('div', { class: 'btn-row' },
-        el('button', {
-          class: 'btn primary big',
-          disabled: !selectedChart,
-          onclick: () => {
-            ctx.saveSettings();
-            ctx.audio.stopPreview();
-            if (!selectedChart) return;
-            const play: PlayParams = {
-              song,
-              chart: selectedChart,
-              players: [{ name: s.playerName, codes: s.bindings[0] }],
-              rate: practice ? practiceRate : 1,
-              noFail,
-              practice,
-              loopStartMs: practice && loopStart ? loopStart * 1000 : null,
-              loopEndMs: practice && loopEnd ? loopEnd * 1000 : null,
-              band: null,
-            };
-            ctx.nav('play', play);
-          },
-        }, practice ? 'Practice' : 'Play'),
-        song.id !== DEMO_SONG_ID && !isBundledSong(song.id) &&
-          el('button', {
-            class: 'btn danger',
-            onclick: async () => {
-              if (!confirm(`Delete "${song.title}" and all its charts/scores?`)) return;
-              await ctx.db.deleteSong(song.id);
-              selectedChart = null;
-              await refresh();
-              toast('Song deleted');
-            },
-          }, 'Delete song'),
-      ),
-    );
+    detailBox.append(el('div', { class: 'muted sm diff-label' }, 'Difficulty'), chips);
 
     // global leaderboard (server-side, shared by everyone)
     if (selectedChart) {
@@ -339,13 +319,13 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
         });
     }
 
-    // local scores (this device — keeps replays)
+    // local scores (this device — keeps replays), collapsed by default
     if (selectedChart) {
       const scores = (await ctx.db.scoresForChart(selectedChart.id))
         .filter((x) => x.rate === 1)
         .sort((a, b) => b.score - a.score || b.accuracy - a.accuracy || b.maxCombo - a.maxCombo)
         .slice(0, 10);
-      const lb = el('div', { class: 'panel' }, el('h3', null, 'Your Scores (this device)'));
+      const lb = el('details', { class: 'panel' }, el('summary', null, `Your Scores (this device)${scores.length ? ` · ${scores.length}` : ''}`));
       if (!scores.length) lb.append(el('div', { class: 'muted' }, 'No scores yet — set the first one!'));
       else {
         const table = el('table', { class: 'table' },
@@ -397,6 +377,174 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
   let practiceRate = 1;
   let loopStart: number | null = null;
   let loopEnd: number | null = null;
+
+  // ---- play setup: pick difficulty, modifiers, practice — then play ----
+  function playSetupDialog(song: SongData): void {
+    if (!charts.length) return void toast('No charts for this song — open the editor to create one');
+    ctx.audio.stopPreview();
+    let chart = selectedChart ?? charts[0];
+    const dlg = el('div', { class: 'modal-back' });
+    const body = el('div', { class: 'panel modal play-setup' });
+
+    const render = (): void => {
+      body.innerHTML = '';
+      const chips = el('div', { class: 'chip-row' });
+      for (const c of charts) {
+        chips.append(
+          el('button', {
+            class: 'chip' + (c.id === chart.id ? ' active' : ''),
+            onclick: () => {
+              chart = c;
+              selectedChart = c; // keep the leaderboard in sync
+              render();
+              void renderDetail();
+            },
+          }, `${modeLabel(c.mode)} · ${c.difficulty} (${c.notes.length})`),
+        );
+      }
+      body.append(
+        el('div', { class: 'modal-head' },
+          el('h2', null, song.title),
+          el('button', { class: 'btn sm modal-close', title: 'Close', onclick: () => dlg.remove() }, icon('x')),
+        ),
+        el('div', { class: 'muted sm diff-label' }, 'Difficulty'),
+        chips,
+        el('details', { class: 'panel' },
+          el('summary', null, 'Modifiers'),
+          row('Scroll speed', numInput(s.scrollSpeed, 0.25, 4, 0.25, (v) => (s.scrollSpeed = v))),
+          row('Direction', selectInput(['down', 'up'], s.scrollDirection, (v) => (s.scrollDirection = v as any))),
+          row('Reverse', checkbox(s.reverse, (v) => (s.reverse = v))),
+          row('Hidden', checkbox(s.hidden, (v) => (s.hidden = v))),
+          row('Sudden', checkbox(s.sudden, (v) => (s.sudden = v))),
+          row('No Fail', checkbox(noFail, (v) => (noFail = v))),
+        ),
+        el('details', { class: 'panel', open: practice },
+          el('summary', null, 'Practice'),
+          row('Practice mode', checkbox(practice, (v) => {
+            practice = v;
+            render();
+          })),
+          row('Speed', selectInput(['0.5', '0.75', '1', '1.25', '1.5'], String(practiceRate), (v) => (practiceRate = Number(v)))),
+          row('Loop start (s)', numInput(loopStart ?? 0, 0, song.durationMs / 1000, 1, (v) => (loopStart = v))),
+          row('Loop end (s, 0=off)', numInput(loopEnd ?? 0, 0, song.durationMs / 1000, 1, (v) => (loopEnd = v))),
+          el('div', { class: 'muted sm' }, 'In practice: [ sets loop start, ] sets loop end, \\ clears. Scores are not saved.'),
+        ),
+        el('div', { class: 'btn-row modal-actions' },
+          el('button', {
+            class: 'btn primary big play-go',
+            title: practice ? 'Practice' : 'Play',
+            onclick: () => {
+              ctx.saveSettings();
+              const play: PlayParams = {
+                song,
+                chart,
+                players: [{ name: s.playerName, codes: s.bindings[0] }],
+                rate: practice ? practiceRate : 1,
+                noFail,
+                practice,
+                loopStartMs: practice && loopStart ? loopStart * 1000 : null,
+                loopEndMs: practice && loopEnd ? loopEnd * 1000 : null,
+                band: null,
+              };
+              dlg.remove();
+              ctx.nav('play', play);
+            },
+          }, icon('play', 22)),
+        ),
+      );
+    };
+
+    render();
+    dlg.onclick = (e: Event) => {
+      if (e.target === dlg) dlg.remove(); // click outside closes too
+    };
+    dlg.append(body);
+    document.body.append(dlg);
+  }
+
+  // ---- song suggestions: anyone can recommend a song for the library ----
+  function recommendDialog(): void {
+    const dlg = el('div', { class: 'modal-back' });
+    const body = el('div', { class: 'panel modal' });
+    const isAdmin = !!adminToken();
+
+    const render = async (): Promise<void> => {
+      body.innerHTML = '';
+      body.append(
+        el('div', { class: 'modal-head' },
+          el('h2', null, 'Suggest a song'),
+          el('button', { class: 'btn sm modal-close', title: 'Close', onclick: () => dlg.remove() }, icon('x')),
+        ),
+        el('div', { class: 'muted sm' }, 'Recommend songs you would like added to the library.'),
+      );
+      const listEl = el('div', { class: 'muted rec-list' }, 'Loading…');
+      const titleIn = el('input', { type: 'text', placeholder: 'Song title', maxlength: '120' });
+      const artistIn = el('input', { type: 'text', placeholder: 'Artist', maxlength: '120' });
+      const sendBtn = el('button', { class: 'btn primary' }, 'Recommend') as HTMLButtonElement;
+      sendBtn.onclick = async () => {
+        const t = titleIn.value.trim();
+        const a = artistIn.value.trim();
+        if (!t || !a) return void toast('Enter both a title and an artist');
+        sendBtn.disabled = true;
+        try {
+          await submitRecommendation(ctx.settings, t, a, s.playerName);
+          toast('Thanks — suggestion sent!');
+          void render();
+        } catch (err) {
+          toast(`Could not send: ${(err as Error).message}`);
+          sendBtn.disabled = false;
+        }
+      };
+      body.append(listEl, row('Title', titleIn), row('Artist', artistIn), el('div', { class: 'btn-row end' }, sendBtn));
+
+      try {
+        const recs = await fetchRecommendations(ctx.settings);
+        listEl.innerHTML = '';
+        listEl.className = 'rec-list';
+        if (!recs.length) {
+          listEl.append(el('div', { class: 'muted' }, 'No suggestions yet — be the first!'));
+          return;
+        }
+        const table = el('table', { class: 'table' },
+          el('tr', null, el('th', null, 'Song'), el('th', null, 'Artist'), el('th', null, 'By'), el('th', null, 'Date'), isAdmin && el('th', null, '')),
+        );
+        for (const r2 of recs) {
+          table.append(
+            el('tr', null,
+              el('td', null, r2.title),
+              el('td', null, r2.artist),
+              el('td', { class: 'muted' }, r2.player || '—'),
+              el('td', { class: 'muted' }, new Date(r2.dateIso).toLocaleDateString()),
+              isAdmin && el('td', null,
+                el('button', {
+                  class: 'btn sm danger',
+                  title: 'Remove suggestion',
+                  onclick: async () => {
+                    try {
+                      await adminDeleteRecommendation(ctx.settings, r2.id);
+                      void render();
+                    } catch (err) {
+                      toast(`Delete failed: ${(err as Error).message}`);
+                    }
+                  },
+                }, icon('x')),
+              ),
+            ),
+          );
+        }
+        listEl.append(table);
+      } catch {
+        listEl.textContent = 'Server unreachable — suggestions are unavailable right now.';
+      }
+    };
+
+    void render();
+    dlg.onclick = (e: Event) => {
+      if (e.target === dlg) dlg.remove();
+    };
+    dlg.append(body);
+    document.body.append(dlg);
+  }
 
   // ---- admin: edit a global leaderboard entry ----
   function adminEditDialog(sc: LeaderboardEntry): void {

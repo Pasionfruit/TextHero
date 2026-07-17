@@ -6,6 +6,7 @@ import { Playfield } from '../render/Playfield';
 import { compileNotes, laneCountOf, LETTERS } from '../charts/chart';
 import { multiplierFor } from '../types';
 import type { JudgeEvent, ReplayData, ReplayEventRec, ScoreRecord } from '../types';
+import { applyTheme } from '../store/settings';
 import { icon } from '../ui/icons';
 import { clamp, codeLabel, el, fmtTime, toast, uid } from '../util';
 import { volumeRow } from './settings';
@@ -211,10 +212,25 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
         params.online && el('div', { class: 'muted sm' }, 'The match is paused for everyone.'),
         el('button', { class: 'btn primary', onclick: () => resumeGame() }, 'Resume'),
         !params.online && el('button', { class: 'btn', onclick: () => restart() }, 'Restart'),
-        el('div', { class: 'pause-settings' }, volumeRow(ctx)),
+        el('div', { class: 'pause-settings' }, volumeRow(ctx), pauseThemeRow()),
         el('button', { class: 'btn danger', onclick: () => quit() }, 'Quit'),
       ),
     );
+  }
+
+  /** The fixed top-right theme toggle is hidden in-game; pause carries one instead. */
+  function pauseThemeRow(): HTMLElement {
+    const btn = el('button', {
+      class: 'btn sm',
+      title: 'Toggle light / dark mode',
+      onclick: () => {
+        s.theme = s.theme === 'light' ? 'dark' : 'light';
+        applyTheme(s);
+        ctx.saveSettings();
+        btn.replaceChildren(icon(s.theme === 'light' ? 'moon' : 'sun'));
+      },
+    }, icon(s.theme === 'light' ? 'moon' : 'sun'));
+    return el('div', { class: 'form-row' }, el('label', null, 'Theme'), btn);
   }
 
   function resumeGame(fromNet = false): void {

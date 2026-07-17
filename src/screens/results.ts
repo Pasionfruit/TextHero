@@ -1,10 +1,10 @@
 import type { AppCtx, ResultsParams, Screen } from '../app';
 import type { ScoreRecord } from '../types';
 import { JUDGMENTS } from '../types';
-import { el, fmtPct } from '../util';
+import { el, fmtPct, toast } from '../util';
 import { judgeColor } from '../store/settings';
 import { modeName } from '../charts/chart';
-import { submitScore } from '../net/api';
+import { nameAllowed, submitScore } from '../net/api';
 
 const GRADE_COLORS: Record<string, string> = {
   SS: '#ffd700',
@@ -95,6 +95,10 @@ export function resultsScreen(root: HTMLElement, ctx: AppCtx, params: ResultsPar
 
     saveBtn.onclick = async () => {
       const name = (nameIn.value.trim() || ctx.settings.playerName || 'Player').slice(0, 24);
+      if (!nameAllowed(name)) {
+        toast('That name is reserved for the admin.');
+        return;
+      }
       saveBtn.disabled = discardBtn.disabled = true;
       saveBtn.textContent = 'Saving…';
       try {

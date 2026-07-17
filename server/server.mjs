@@ -112,8 +112,31 @@ function makeSqliteStore() {
   );
   const stmtChartDelete = db.prepare('DELETE FROM charts WHERE chart_id = ?');
 
+  // song recommendations from players
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS recommendations (
+      id       INTEGER PRIMARY KEY AUTOINCREMENT,
+      title    TEXT NOT NULL,
+      artist   TEXT NOT NULL,
+      player   TEXT NOT NULL DEFAULT '',
+      date_iso TEXT NOT NULL
+    );
+  `);
+  const stmtRecList = db.prepare('SELECT id, title, artist, player, date_iso AS dateIso FROM recommendations ORDER BY id DESC LIMIT ?');
+  const stmtRecAdd = db.prepare('INSERT INTO recommendations (title, artist, player, date_iso) VALUES (?, ?, ?, ?)');
+  const stmtRecDel = db.prepare('DELETE FROM recommendations WHERE id = ?');
+
   return {
     kind: 'sqlite',
+    async recommendations(limit) {
+      return stmtRecList.all(limit);
+    },
+    async addRecommendation(r) {
+      stmtRecAdd.run(r.title, r.artist, r.player, r.dateIso);
+    },
+    async deleteRecommendation(id) {
+      return Number(stmtRecDel.run(id).changes);
+    },
     async chartsForSong(songId) {
       return stmtChartsBySong.all(songId);
     },
@@ -189,8 +212,26 @@ async function makePgStore(url) {
       updated_iso TEXT NOT NULL
     )`);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_charts_song ON charts (song_id)');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS recommendations (
+      id       SERIAL PRIMARY KEY,
+      title    TEXT NOT NULL,
+      artist   TEXT NOT NULL,
+      player   TEXT NOT NULL DEFAULT '',
+      date_iso TEXT NOT NULL
+    )`);
   return {
     kind: 'postgres',
+    async recommendations(limit) {
+      const r = await pool.query('SELECT id, title, artist, player, date_iso AS "dateIso" FROM recommendations ORDER BY id DESC LIMIT $1', [limit]);
+      return r.rows;
+    },
+    async addRecommendation(rec) {
+      await pool.query('INSERT INTO recommendations (title, artist, player, date_iso) VALUES ($1,$2,$3,$4)', [rec.title, rec.artist, rec.player, rec.dateIso]);
+    },
+    async deleteRecommendation(id) {
+      return (await pool.query('DELETE FROM recommendations WHERE id = $1', [id])).rowCount;
+    },
     async chartsForSong(songId) {
       const r = await pool.query('SELECT * FROM charts WHERE song_id = $1', [songId]);
       return r.rows;
@@ -419,6 +460,9 @@ async function handleApi(req, res, url) {
     }
     const rec = normalizeScore(body);
     if (!rec) return sendJson(res, 400, { error: 'invalid score payload (failed and non-1x-rate runs are not ranked)' });
+    if (rec.player.toLowerCase() === 'mrpasionfruit' && !isAdmin(req)) {
+      return sendJson(res, 400, { error: 'that player name is reserved for the admin' });
+    }
 
     // keep each player's best run per chart
     const existing = await store.getBest(rec.chartId, rec.player);
@@ -480,6 +524,34 @@ async function handleApi(req, res, url) {
     const chartId = String(url.searchParams.get('chartId') || '').slice(0, 128);
     if (!chartId) return sendJson(res, 400, { error: 'chartId required' });
     return sendJson(res, 200, { ok: true, deleted: await store.deleteChart(chartId) });
+  }
+
+  // ---- song recommendations (anyone can suggest; admins can prune) ----
+  if (url.pathname === '/api/recommendations' && req.method === 'GET') {
+    return sendJson(res, 200, { recommendations: await store.recommendations(200) });
+  }
+
+  if (url.pathname === '/api/recommendations' && req.method === 'POST') {
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      return sendJson(res, 400, { error: 'invalid JSON' });
+    }
+    const title = cleanStr(body.title, 120).trim();
+    const artist = cleanStr(body.artist, 120).trim();
+    if (!title || !artist) return sendJson(res, 400, { error: 'title and artist required' });
+    let recPlayer = cleanStr(body.player, 24).trim();
+    if (recPlayer.toLowerCase() === 'mrpasionfruit' && !isAdmin(req)) recPlayer = '';
+    await store.addRecommendation({ title, artist, player: recPlayer, dateIso: new Date().toISOString() });
+    return sendJson(res, 200, { ok: true });
+  }
+
+  if (url.pathname === '/api/recommendations' && req.method === 'DELETE') {
+    if (!isAdmin(req)) return sendJson(res, 401, { error: 'admin login required' });
+    const id = Math.round(Number(url.searchParams.get('id')));
+    if (!Number.isFinite(id) || id <= 0) return sendJson(res, 400, { error: 'id required' });
+    return sendJson(res, 200, { ok: true, deleted: await store.deleteRecommendation(id) });
   }
 
   if (url.pathname === '/api/admin/login' && req.method === 'POST') {

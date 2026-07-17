@@ -1,6 +1,6 @@
 import type { GameMode, RuntimeNote } from '../types';
 import type { Settings } from '../store/settings';
-import { judgeColor, laneColor } from '../store/settings';
+import { isLightTheme, judgeColor, laneColor } from '../store/settings';
 import { LETTERS, letterColumn } from '../charts/chart';
 import { clamp, fitCanvas } from '../util';
 
@@ -156,10 +156,14 @@ export class Playfield {
     const font = this.s.fontFamily || 'system-ui';
     const hc = this.s.highContrast;
     const perfNow = performance.now();
+    // the highway follows the app theme (high-contrast mode stays black)
+    const light = !hc && isLightTheme();
+    const ink = (a: number): string => (light ? `rgba(43,36,22,${a})` : `rgba(255,255,255,${a})`);
 
     // background
     ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = hc ? '#000' : `rgba(8,9,13,${clamp(this.s.bgDim + 0.4, 0, 1)})`;
+    // semi-transparent so the wavy page backdrop shows through (bgDim controls how much)
+    ctx.fillStyle = hc ? '#000' : light ? `rgba(248,242,229,${clamp(this.s.bgDim + 0.25, 0, 1)})` : `rgba(8,9,13,${clamp(this.s.bgDim + 0.25, 0, 1)})`;
     ctx.fillRect(0, 0, W, H);
 
     // highway (converging trapezoid)
@@ -170,7 +174,7 @@ export class Playfield {
     ctx.lineTo(edge(1, HORIZON_W), g.horizonY);
     ctx.lineTo(edge(1, 1), lineY);
     ctx.closePath();
-    ctx.fillStyle = hc ? '#0a0a0a' : 'rgba(255,255,255,0.028)';
+    ctx.fillStyle = hc ? '#0a0a0a' : light ? 'rgba(60,40,10,0.05)' : 'rgba(255,255,255,0.028)';
     ctx.fill();
 
     // pressed-column glow wedges
@@ -192,7 +196,7 @@ export class Playfield {
     }
 
     // lane dividers
-    ctx.strokeStyle = hc ? 'rgba(255,255,255,0.35)' : 'rgba(255,255,255,0.07)';
+    ctx.strokeStyle = hc ? 'rgba(255,255,255,0.35)' : ink(light ? 0.14 : 0.07);
     ctx.lineWidth = 1;
     for (let i = 0; i <= cols; i++) {
       const xb = g.centerX - g.totalW / 2 + i * (colW + g.spacing) - g.spacing / 2;
@@ -203,7 +207,7 @@ export class Playfield {
     }
 
     // judgment line
-    ctx.strokeStyle = hc ? '#fff' : 'rgba(255,255,255,0.55)';
+    ctx.strokeStyle = hc ? '#fff' : ink(0.55);
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(edge(-1, 1), lineY);
@@ -233,7 +237,7 @@ export class Playfield {
         // echo the letter you just pressed inside its column's ring
         if (glow > 0.05 && this.colLabel[c]) {
           ctx.globalAlpha = glow;
-          ctx.fillStyle = hc ? '#fff' : 'rgba(255,255,255,0.9)';
+          ctx.fillStyle = hc ? '#fff' : ink(0.9);
           ctx.font = `bold ${rBase * 1.05}px ${font}`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
@@ -244,7 +248,7 @@ export class Playfield {
       } else {
         const label = this.opts.labels[c] ?? '';
         if (label) {
-          ctx.fillStyle = hc ? '#fff' : 'rgba(255,255,255,0.55)';
+          ctx.fillStyle = hc ? '#fff' : ink(0.55);
           ctx.font = `600 ${clamp(colW * 0.26, 9, 13)}px ${font}`;
           ctx.textAlign = 'center';
           const ly = g.dirDown ? Math.min(H - 8, lineY + rBase + 16) : Math.max(12, lineY - rBase - 8);
@@ -325,25 +329,36 @@ export class Playfield {
       ctx.globalAlpha = 1;
     }
 
-    // ---- HUD (minimal: one block top-right, combo center, name bottom-left) ----
+    // ---- HUD: score / stats / multiplier in a card top-right, combo center ----
+    const hudW = 168;
+    const hudH = 58;
+    const hudX = W - hudW - 12;
+    const hudY = 10;
+    ctx.beginPath();
+    ctx.roundRect(hudX, hudY, hudW, hudH, 10);
+    ctx.fillStyle = hc ? 'rgba(0,0,0,0.85)' : light ? 'rgba(255,253,246,0.85)' : 'rgba(19,21,27,0.85)';
+    ctx.fill();
+    ctx.strokeStyle = ink(0.15);
+    ctx.lineWidth = 1;
+    ctx.stroke();
     ctx.textAlign = 'right';
-    ctx.fillStyle = hc ? '#fff' : 'rgba(255,255,255,0.92)';
+    ctx.fillStyle = hc ? '#fff' : ink(0.92);
     ctx.font = `700 21px ${font}`;
-    ctx.fillText(String(hud.score).padStart(7, '0'), W - 14, 28);
+    ctx.fillText(String(hud.score).padStart(7, '0'), hudX + hudW - 12, hudY + 26);
     ctx.font = `12px ${font}`;
-    ctx.fillStyle = hc ? '#fff' : 'rgba(255,255,255,0.55)';
-    ctx.fillText(`${(hud.accuracy * 100).toFixed(2)}%  ·  ${hud.multiplier}x`, W - 14, 46);
+    ctx.fillStyle = hc ? '#fff' : ink(0.6);
+    ctx.fillText(`${(hud.accuracy * 100).toFixed(2)}%  ·  ${hud.multiplier}x`, hudX + hudW - 12, hudY + 45);
     ctx.textAlign = 'left';
     ctx.fillText(hud.name, 12, H - 10);
 
-    // health: thin bar on the right edge
+    // health: thick bar on the right edge
     const hbH = H * 0.34;
     const hbY = (H - hbH) / 2;
-    ctx.fillStyle = 'rgba(255,255,255,0.08)';
-    ctx.fillRect(W - 7, hbY, 3, hbH);
+    ctx.fillStyle = ink(light ? 0.14 : 0.1);
+    ctx.fillRect(W - 17, hbY, 9, hbH);
     const hFrac = clamp(hud.health / 100, 0, 1);
     ctx.fillStyle = hud.health > 50 ? '#43d675' : hud.health > 25 ? '#f5d90a' : '#e5484d';
-    ctx.fillRect(W - 7, hbY + hbH * (1 - hFrac), 3, hbH * hFrac);
+    ctx.fillRect(W - 17, hbY + hbH * (1 - hFrac), 9, hbH * hFrac);
 
     // combo
     if (hud.combo !== this.lastCombo) {
@@ -354,10 +369,10 @@ export class Playfield {
       const pulse = clamp(1 - (perfNow - this.comboPulseAt) / 160, 0, 1);
       ctx.textAlign = 'center';
       ctx.font = `800 ${30 + pulse * 8}px ${font}`;
-      ctx.fillStyle = hc ? '#fff' : `rgba(255,255,255,${0.7 + pulse * 0.3})`;
+      ctx.fillStyle = hc ? '#fff' : ink(0.7 + pulse * 0.3);
       ctx.fillText(String(hud.combo), W / 2, H * 0.32);
       ctx.font = `600 10px ${font}`;
-      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.fillStyle = ink(0.4);
       ctx.fillText('C O M B O', W / 2, H * 0.32 + 15);
     }
 
@@ -382,14 +397,14 @@ export class Playfield {
       ctx.fillRect(0, 0, W, H);
       ctx.textAlign = 'center';
       ctx.font = `800 38px ${font}`;
-      ctx.fillStyle = '#ff6b6b';
+      ctx.fillStyle = light ? '#c62828' : '#ff6b6b';
       ctx.fillText('FAILED', W / 2, H / 2);
     }
 
     if (countdownSec != null && countdownSec > 0) {
       ctx.textAlign = 'center';
       ctx.font = `800 60px ${font}`;
-      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.fillStyle = ink(0.9);
       ctx.fillText(String(Math.ceil(countdownSec)), W / 2, H * 0.48);
     }
   }

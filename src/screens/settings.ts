@@ -1,6 +1,7 @@
 import type { AppCtx, Screen } from '../app';
-import { adminLogin, adminToken, clearAdminToken } from '../net/api';
+import { adminLogin, adminToken, clearAdminToken, nameAllowed } from '../net/api';
 import { applyTheme, DEFAULT_SETTINGS } from '../store/settings';
+import { icon } from '../ui/icons';
 import { codeLabel, el, toast } from '../util';
 import { checkbox, numInput, row, selectInput } from './songselect';
 
@@ -54,15 +55,25 @@ export function settingsScreen(root: HTMLElement, ctx: AppCtx, _params: any): Sc
   function render(): void {
     page.innerHTML = '';
     page.append(
-      el('div', { class: 'row spread' },
-        el('h1', { class: 'page-title' }, 'Settings'),
-        el('button', { class: 'btn', onclick: () => ctx.nav('menu') }, 'Back'),
+      el('div', { class: 'page-head' },
+        el('button', { class: 'btn back-btn', title: 'Back to menu', onclick: () => ctx.nav('menu') }, icon('chevronleft', 18)),
+        el('h1', { class: 'page-title centered' }, 'Settings'),
+        el('div'),
       ),
     );
 
     page.append(el('div', { class: 'panel' },
       el('h3', null, 'Player'),
-      row('Name', el('input', { type: 'text', value: s.playerName, onchange: (e: Event) => (s.playerName = (e.target as HTMLInputElement).value || 'Player') })),
+      row('Name', el('input', { type: 'text', value: s.playerName, onchange: (e: Event) => {
+        const input = e.target as HTMLInputElement;
+        const v = input.value.trim() || 'Player';
+        if (!nameAllowed(v)) {
+          toast('That name is reserved for the admin.');
+          input.value = s.playerName;
+          return;
+        }
+        s.playerName = v;
+      } })),
     ));
 
     const keys = el('div', { class: 'panel' }, el('h3', null, 'Five-key bindings'), el('div', { class: 'muted sm' }, 'Click a key to rebind (Esc cancels). P2–P4 are used in local multiplayer.'));
@@ -132,7 +143,7 @@ export function settingsScreen(root: HTMLElement, ctx: AppCtx, _params: any): Sc
     if (adminToken()) {
       adminPanel.append(
         el('div', { class: 'muted sm' }, 'Logged in as admin — edit/delete buttons appear on global leaderboards in Song Select.'),
-        el('div', { class: 'btn-row' },
+        el('div', { class: 'btn-row end' },
           el('button', {
             class: 'btn',
             onclick: () => {
@@ -166,8 +177,8 @@ export function settingsScreen(root: HTMLElement, ctx: AppCtx, _params: any): Sc
       adminPanel.append(
         row('Username', userIn),
         row('Password', passIn),
-        el('div', { class: 'btn-row' }, loginBtn),
         el('div', { class: 'muted sm' }, 'Admins can edit or remove entries on the global leaderboard.'),
+        el('div', { class: 'btn-row end' }, loginBtn),
       );
     }
     page.append(adminPanel);

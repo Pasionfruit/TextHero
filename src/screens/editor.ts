@@ -348,7 +348,7 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
   function exit(): void {
     if (dirty && !confirm('Leave without saving? Unsaved changes will be lost.')) return;
     conductor.stop();
-    ctx.nav('songselect', { songId: song?.id });
+    ctx.nav('menu');
   }
 
   function testPlay(): void {

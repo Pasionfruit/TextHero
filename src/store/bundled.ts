@@ -52,8 +52,10 @@ const BUNDLED_GENRES: Record<string, string> = {
   'end-of-august-noah-kahan': 'Folk Pop',
   'feeling-juice-wrld': 'Hip-Hop',
   'fight-together-namie-amuro': 'J-Pop',
+  'float-on-modest-mouse': 'Indie Rock',
   'fly-day-china-town-yasuha': 'City Pop',
   'free-bird-lynyrd-skynyrd': 'Southern Rock',
+  'let-me-go-hailee-steinfeld-alesso-ft-florida-georgia-line-watt': 'Dance Pop',
   'gives-you-hell-the-all-american-rejects': 'Pop Rock',
   'go-flow': 'J-Rock',
   'good-riddance-green-day': 'Acoustic Rock',
@@ -66,6 +68,7 @@ const BUNDLED_GENRES: Record<string, string> = {
   'love-me-not-ravyn-lenae': 'R&B',
   'mr-brightside-the-killers': 'Indie Rock',
   'nobodys-son-sabrina-carpenter': 'Pop',
+  'please-don-t-go-mike-posner': 'Pop',
   'runaway-u-i-galantis': 'EDM',
   'silhoutte-kana-boon': 'J-Rock',
   'smells-like-summer-early-hours': 'Indie Pop',
@@ -83,6 +86,7 @@ const BUNDLED_GENRES: Record<string, string> = {
   'wake-me-up-when-september-ends-green-day': 'Rock',
   'welcome-to-new-york-taylor-swift': 'Pop',
   'welcome-to-the-black-parade-my-chemical-romance': 'Emo Rock',
+  'wildest-dreams-taylor-swift': 'Pop',
 };
 
 function parseBundled(path: string, url: string): BundledFile {

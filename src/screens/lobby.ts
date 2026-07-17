@@ -2,6 +2,7 @@ import type { AppCtx, PlayParams, PlayerSetup, Screen } from '../app';
 import type { ChartData, SongData } from '../types';
 import { b64ToBlob, blobToB64 } from '../net/NetClient';
 import { modeLabel } from '../charts/chart';
+import { nameAllowed } from '../net/api';
 import { icon } from '../ui/icons';
 import { codeLabel, el, toast } from '../util';
 import { checkbox, row, selectInput } from './songselect';
@@ -12,7 +13,7 @@ export function lobbyScreen(root: HTMLElement, ctx: AppCtx, _params: any): Scree
   const offs: Array<() => void> = [];
   let destroyed = false;
 
-  const page = el('div', { class: 'page' });
+  const page = el('div', { class: 'page lobby' });
   root.append(page);
 
   let tab: 'local' | 'online' = ctx.net.isConnected() ? 'online' : 'local';
@@ -71,9 +72,10 @@ export function lobbyScreen(root: HTMLElement, ctx: AppCtx, _params: any): Scree
     if (destroyed) return;
     page.innerHTML = '';
     page.append(
-      el('div', { class: 'row spread' },
-        el('h1', { class: 'page-title' }, 'Multiplayer'),
-        el('button', { class: 'btn', onclick: () => ctx.nav('menu') }, 'Back'),
+      el('div', { class: 'page-head' },
+        el('button', { class: 'btn back-btn', title: 'Back to menu', onclick: () => ctx.nav('menu') }, icon('chevronleft', 18)),
+        el('h1', { class: 'page-title centered' }, 'Multiplayer'),
+        el('div'),
       ),
       el('div', { class: 'chip-row' },
         el('button', { class: 'chip' + (tab === 'local' ? ' active' : ''), onclick: () => { tab = 'local'; render(); } }, 'Local (shared keyboard)'),
@@ -92,7 +94,15 @@ export function lobbyScreen(root: HTMLElement, ctx: AppCtx, _params: any): Scree
     for (let i = 0; i < playerCount; i++) {
       const r = el('div', { class: 'form-row' },
         el('label', null, `P${i + 1}`),
-        el('input', { type: 'text', placeholder: i === 0 ? s.playerName : `Player ${i + 1}`, value: names[i], style: { width: '120px' }, onchange: (e: Event) => (names[i] = (e.target as HTMLInputElement).value) }),
+        el('input', { type: 'text', placeholder: i === 0 ? s.playerName : `Player ${i + 1}`, value: names[i], style: { width: '120px' }, onchange: (e: Event) => {
+          const input = e.target as HTMLInputElement;
+          if (!nameAllowed(input.value)) {
+            toast('That name is reserved for the admin.');
+            input.value = names[i];
+            return;
+          }
+          names[i] = input.value;
+        } }),
         el('span', { class: 'muted sm' }, (s.bindings[i] ?? []).map(codeLabel).join(' · ') + '  (rebind in Settings)'),
       );
       panel.append(r);
@@ -115,9 +125,10 @@ export function lobbyScreen(root: HTMLElement, ctx: AppCtx, _params: any): Scree
     if (playerCount > 1) songPanel.append(el('div', { class: 'muted sm' }, 'Local multiplayer uses five-key charts (keyboard/letters modes need a keyboard per player — play those online).'));
 
     page.append(panel, rules, songPanel,
-      el('div', { class: 'btn-row' },
+      el('div', { class: 'btn-row end' },
         el('button', {
-          class: 'btn primary big',
+          class: 'btn primary big play-go',
+          title: 'Start',
           disabled: !selSong || !selChart,
           onclick: () => {
             if (!selSong || !selChart) return;
@@ -136,7 +147,7 @@ export function lobbyScreen(root: HTMLElement, ctx: AppCtx, _params: any): Scree
             };
             ctx.nav('play', play);
           },
-        }, 'Start'),
+        }, icon('play', 20)),
       ),
     );
   }
@@ -149,7 +160,7 @@ export function lobbyScreen(root: HTMLElement, ctx: AppCtx, _params: any): Scree
         el('h3', null, 'Connect'),
         row('Server', el('input', { type: 'text', value: url, style: { width: '240px' }, onchange: (e: Event) => { url = (e.target as HTMLInputElement).value; } })),
         el('div', { class: 'muted sm' }, 'Run the bundled server with:  npm run server'),
-        el('div', { class: 'btn-row' },
+        el('div', { class: 'btn-row end' },
           el('button', {
             class: 'btn primary',
             onclick: async () => {
@@ -177,26 +188,25 @@ export function lobbyScreen(root: HTMLElement, ctx: AppCtx, _params: any): Scree
           el('h3', null, 'Create lobby'),
           row('Public', checkbox(isPublic, (v) => (isPublic = v))),
           row('Player limit', selectInput(['1', '2', '3', '4'], String(maxPlayers), (v) => (maxPlayers = Number(v)))),
-          el('div', { class: 'btn-row' },
+          el('div', { class: 'btn-row end' },
             el('button', { class: 'btn primary', onclick: () => ctx.net.send('create', { name: s.playerName, isPublic, maxPlayers }) }, 'Create'),
           ),
         ),
         el('div', { class: 'panel' },
           el('h3', null, 'Join by code'),
           row('Code', el('input', { type: 'text', value: joinCode, maxlength: '4', style: { width: '90px', textTransform: 'uppercase' }, oninput: (e: Event) => (joinCode = (e.target as HTMLInputElement).value) })),
-          el('div', { class: 'btn-row' },
+          el('div', { class: 'btn-row end' },
             el('button', { class: 'btn primary', onclick: () => ctx.net.send('join', { code: joinCode, name: s.playerName }) }, 'Join'),
           ),
         ),
         lobbiesBox,
-        el('div', { class: 'btn-row' },
+        el('div', { class: 'btn-row end' },
           el('button', { class: 'btn', onclick: () => { ctx.net.disconnect(); render(); } }, 'Disconnect'),
         ),
       );
       offs.push(ctx.net.on('lobbies', (m) => {
         lobbiesBox.innerHTML = '';
-        lobbiesBox.append(el('h3', null, 'Public lobbies'),
-          el('button', { class: 'btn sm', onclick: () => ctx.net.send('list') }, 'Refresh'));
+        lobbiesBox.append(el('h3', null, 'Public lobbies'));
         if (!m.list.length) lobbiesBox.append(el('div', { class: 'muted' }, 'None open right now.'));
         for (const l of m.list) {
           lobbiesBox.append(el('div', { class: 'lb-row' },
@@ -204,6 +214,9 @@ export function lobbyScreen(root: HTMLElement, ctx: AppCtx, _params: any): Scree
             el('button', { class: 'btn sm', onclick: () => ctx.net.send('join', { code: l.code, name: s.playerName }) }, 'Join'),
           ));
         }
+        lobbiesBox.append(el('div', { class: 'btn-row end' },
+          el('button', { class: 'btn sm', onclick: () => ctx.net.send('list') }, 'Refresh'),
+        ));
       }));
       return;
     }
@@ -213,7 +226,11 @@ export function lobbyScreen(root: HTMLElement, ctx: AppCtx, _params: any): Scree
     const isHost = ctx.net.isHost();
     const me = lobby.players.find((p) => p.id === lobby.youId);
 
-    const playersBox = el('div', { class: 'panel' }, el('h3', null, `Lobby ${lobby.code} ${lobby.isPublic ? '(public)' : '(private)'}`));
+    const playersBox = el('div', { class: 'panel' },
+      el('div', { class: 'row spread' },
+        el('h3', null, `Players ${lobby.isPublic ? '(public)' : '(private)'}`),
+        el('div', { class: 'lobby-code' }, `Lobby Code: ${lobby.code}`),
+      ));
     for (const p of lobby.players) {
       playersBox.append(el('div', { class: 'lb-row' },
         el('span', null, p.name, p.id === lobby.hostId && icon('crown', 12), p.id === lobby.youId ? ' (you)' : ''),
@@ -233,13 +250,13 @@ export function lobbyScreen(root: HTMLElement, ctx: AppCtx, _params: any): Scree
     }
     page.append(songBox);
 
-    const btns = el('div', { class: 'btn-row' });
+    const btns = el('div', { class: 'btn-row end' });
+    btns.append(el('button', { class: 'btn danger', onclick: () => { ctx.net.send('leave'); ctx.net.lobby = null; ctx.net.songPayload = null; render(); } }, 'Leave lobby'));
     if (isHost) {
       btns.append(el('button', { class: 'btn primary big', onclick: () => ctx.net.send('start') }, 'Start match'));
     } else {
       btns.append(el('button', { class: 'btn primary', onclick: () => ctx.net.send('ready', { ready: !me?.ready }) }, me?.ready ? 'Unready' : 'Ready up'));
     }
-    btns.append(el('button', { class: 'btn danger', onclick: () => { ctx.net.send('leave'); ctx.net.lobby = null; ctx.net.songPayload = null; render(); } }, 'Leave lobby'));
     page.append(btns);
   }
 

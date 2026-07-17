@@ -263,6 +263,7 @@ input[type="range"] { accent-color: var(--accent); padding: 0; border: none; bac
   flex-shrink: 0;
 }
 .editor-toolbar .sep { width: 1px; height: 20px; background: var(--border-strong); margin: 0 5px; }
+.editor-song-select { max-width: 220px; }
 /* min-height:0 lets the canvas shrink below its intrinsic (attribute) size —
    without it the fitCanvas feedback loop ratchets the canvas taller and pushes
    the scrubber/status bar off-screen */

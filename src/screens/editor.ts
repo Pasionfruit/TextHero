@@ -39,6 +39,7 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
   const conductor = new Conductor(ctx.audio);
 
   let song: SongData | null = null;
+  let allSongs: SongData[] = [];
   let charts: ChartData[] = [];
   let activeIdx = 0;
   let notes: NoteData[] = [];
@@ -62,6 +63,8 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
   let rafId = 0;
   let destroyed = false;
   let dirty = false;
+  let recording = false;
+  const recHeld = new Map<number, NoteData>(); // lane -> note currently being held
 
   const TOP_PAD = 26;
   const WAVE_X = 8, WAVE_W = 84, RULER_X = 100, LANES_X = 148;
@@ -158,8 +161,18 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
       },
     }, 'Tap');
 
+    // song picker: edit any song in the library without leaving the editor
+    const songSel = el('select', {
+      class: 'editor-song-select',
+      onchange: (e: Event) => void switchSong((e.target as HTMLSelectElement).value),
+    });
+    for (const sd of allSongs) {
+      songSel.append(el('option', { value: sd.id, selected: sd.id === song.id }, `${sd.title} — ${sd.artist}`));
+    }
+
     toolbar.append(
       el('button', { class: 'btn sm', onclick: () => exit() }, '← Back'),
+      songSel,
       el('span', { class: 'sep' }),
       titleIn, artistIn,
       el('span', { class: 'muted sm' }, 'BPM'), bpmIn, tapBtn,
@@ -171,6 +184,7 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
       el('button', { class: 'btn sm', onclick: () => (pxPerBeat = clamp(pxPerBeat / 1.25, 12, 320)) }, '🔍−'),
       el('span', { class: 'sep' }),
       el('button', { class: 'btn sm', onclick: () => togglePlay() }, '⏯ Play'),
+      el('button', { class: 'btn sm' + (recording ? ' danger' : ''), title: 'Play the song and tap your lanes to place notes live', onclick: () => toggleRecord() }, recording ? '⏹ Stop rec' : '⏺ Record'),
       el('button', { class: 'btn sm primary', onclick: () => testPlay() }, '▶ Test (F5)'),
       el('button', {
         class: 'btn sm' + (isAdmin ? ' primary' : ''),
@@ -336,6 +350,7 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
   }
 
   function testPlay(): void {
+    if (recording) stopRecord();
     if (!song || !active()) return;
     commitActive();
     conductor.stop();
@@ -355,6 +370,7 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
 
   // ---- playback ----
   function togglePlay(): void {
+    if (recording) return stopRecord();
     if (!buffer || !song) return;
     if (playing) {
       playheadBeat = msToBeat(song, conductor.nowMs());
@@ -368,10 +384,94 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
     }
   }
 
+  // ---- live recording: play the song and tap the lanes to place notes ----
+  const recLatencyMs = (): number => ctx.audio.outputLatencyMs() + s.audioOffsetMs;
+  const recBeatAt = (evTimeStamp: number): number =>
+    clamp(msToBeat(song!, conductor.eventMs(evTimeStamp) - recLatencyMs()), 0, totalBeats());
+
+  /** Which lane a key event maps to for the active chart's mode. */
+  function recLaneFor(e: KeyboardEvent): number {
+    const c = active();
+    if (!c) return -1;
+    if (c.mode === 'five') return (s.bindings[0] ?? []).indexOf(e.code);
+    if (c.mode === 'keyboard') return c.keys.indexOf(e.key.toUpperCase());
+    return e.key.length === 1 ? LETTERS.indexOf(e.key.toUpperCase()) : -1;
+  }
+
+  function finalizeRecNote(n: NoteData, upBeat: number): void {
+    const spb = snapPerBeat();
+    const dur = Math.round((upBeat - n.beat) * spb) / spb;
+    // long presses become holds; quick taps stay taps
+    n.durBeats = dur >= Math.max(0.5, 1 / spb) ? clamp(dur, 0, 8) : 0;
+  }
+
+  function toggleRecord(): void {
+    if (recording) return stopRecord();
+    if (!song || !buffer || !active()) return void toast('Audio is still loading — try again in a moment');
+    if (playing) togglePlay();
+    pushUndo(); // the whole take is one undo step
+    recording = true;
+    recHeld.clear();
+    void ctx.audio.ensureRunning().then(() => {
+      conductor.play(buffer!, { fromMs: Math.max(0, beatToMs(song!, playheadBeat)), rate: 1, leadInMs: 1500 });
+      playing = true;
+    });
+    renderToolbars();
+    toast('Recording — tap your lanes in time with the song. Hold for hold notes. Esc stops.');
+  }
+
+  function stopRecord(): void {
+    if (!recording) return;
+    recording = false;
+    const endBeat = song ? clamp(msToBeat(song, conductor.nowMs() - recLatencyMs()), 0, totalBeats()) : 0;
+    for (const n of recHeld.values()) finalizeRecNote(n, endBeat);
+    recHeld.clear();
+    if (playing) togglePlay();
+    dedupeNotes();
+    commitActive();
+    dirty = true;
+    renderToolbars();
+    toast(`Take recorded — ${notes.length} notes on this chart now. Ctrl+Z undoes the whole take.`);
+  }
+
+  const onRecKey = (e: KeyboardEvent): void => {
+    if (!recording) return;
+    const tag = (e.target as HTMLElement).tagName;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+    if (e.type === 'keydown' && e.code === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      stopRecord();
+      return;
+    }
+    const lane = recLaneFor(e);
+    if (lane < 0 || lane >= laneCount()) {
+      e.stopPropagation(); // no editor shortcuts mid-take (Esc above is the exit)
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === 'keydown') {
+      if (e.repeat || recHeld.has(lane) || !song) return;
+      const n: NoteData = { beat: snapBeat(recBeatAt(e.timeStamp)), lane, durBeats: 0 };
+      notes.push(n);
+      recHeld.set(lane, n);
+    } else {
+      const n = recHeld.get(lane);
+      if (n) {
+        finalizeRecNote(n, recBeatAt(e.timeStamp));
+        recHeld.delete(lane);
+      }
+    }
+  };
+  window.addEventListener('keydown', onRecKey, true);
+  window.addEventListener('keyup', onRecKey, true);
+
   // ---- transport scrubber ----
   let scrubbing = false;
   function scrubTo(e: PointerEvent): void {
     if (!song) return;
+    if (recording) stopRecord(); // seeking mid-take ends the take
     const r = scrubTrack.getBoundingClientRect();
     const frac = clamp((e.clientX - r.left) / r.width, 0, 1);
     const ms = frac * song.durationMs;
@@ -615,7 +715,7 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
       playheadBeat = msToBeat(song, conductor.nowMs());
       const y = yOf(playheadBeat);
       if (y > H * 0.72) scrollPx = playheadBeat * pxPerBeat - H * 0.35;
-      if (conductor.nowMs() > song.durationMs) togglePlay();
+      if (conductor.nowMs() > song.durationMs) recording ? stopRecord() : togglePlay();
     }
 
     const beat0 = Math.max(0, Math.floor(beatAtY(0)));
@@ -732,40 +832,23 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
     scrubNow.textContent = fmtTime(posMs);
     scrubPlayBtn.textContent = playing ? '⏸' : '⏵';
 
-    status.textContent = `${fmtTime(beatToMs(song, playheadBeat))} · beat ${playheadBeat.toFixed(2)} · ${notes.length} notes · ${selection.size} selected — click: place · drag down: hold · right-click: delete · shift-drag: box select · ctrl+C/V copy/paste · ctrl+Z undo · space: play · F5: test`;
+    status.textContent = `${recording ? '⏺ REC · ' : ''}${fmtTime(beatToMs(song, playheadBeat))} · beat ${playheadBeat.toFixed(2)} · ${notes.length} notes · ${selection.size} selected — ${recording ? 'tap your lanes to place notes · hold for hold notes · Esc: stop recording' : 'click: place · drag down: hold · right-click: delete · shift-drag: box select · ctrl+C/V copy/paste · ctrl+Z undo · space: play · ⏺: record taps · F5: test'}`;
   }
 
-  // ---- boot ----
-  void (async () => {
-    if (params.resume) {
-      song = params.resume.song;
-      charts = params.resume.charts;
-      activeIdx = clamp(params.resume.activeIdx, 0, charts.length - 1);
-      playheadBeat = msToBeat(song, params.resume.playheadMs);
-      dirty = true;
-    } else {
-      const songId = params.songId;
-      const all = await ctx.db.songs();
-      song = (songId ? all.find((x) => x.id === songId) : all[0]) ?? null;
-      if (!song) {
-        toast('No song to edit — upload one first');
-        ctx.nav('songselect', {});
-        return;
-      }
-      song = structuredClone(song);
-      charts = (await ctx.db.chartsForSong(song.id)).map((c) => structuredClone(c));
-      if (!charts.length) charts = [makeEmptyChart(song.id, 'five', 'medium')];
-      activeIdx = 0;
-    }
-    notes = charts[activeIdx].notes;
-    renderToolbars();
-    scrollToPlayhead();
-    scrubTotal.textContent = fmtTime(song.durationMs);
+  // ---- song loading / switching ----
+  let loadSeq = 0; // guards against a stale decode landing after a song switch
 
+  async function loadAudio(): Promise<void> {
+    const seq = ++loadSeq;
+    buffer = null;
+    analysis = null;
+    peaksMin = peaksMax = null;
     try {
       await ctx.audio.ensureRunning();
-      buffer = await ctx.audio.bufferForSong(song, ctx.db);
-      const data = buffer.getChannelData(0);
+      const buf = await ctx.audio.bufferForSong(song!, ctx.db);
+      if (seq !== loadSeq || destroyed) return;
+      buffer = buf;
+      const data = buf.getChannelData(0);
       const n = Math.ceil(data.length / PEAK_CHUNK);
       peaksMin = new Float32Array(n);
       peaksMax = new Float32Array(n);
@@ -781,7 +864,62 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
         peaksMax[i] = mx;
       }
     } catch {
-      toast('Audio failed to load — you can still edit notes');
+      if (seq === loadSeq && !destroyed) toast('Audio failed to load — you can still edit notes');
+    }
+  }
+
+  async function loadSong(id: string | undefined): Promise<void> {
+    allSongs = (await ctx.db.songs()).sort((a, b) => a.title.localeCompare(b.title));
+    const found = (id ? allSongs.find((x) => x.id === id) : allSongs[0]) ?? null;
+    if (!found) {
+      toast('No song to edit — upload one first');
+      ctx.nav('songselect', {});
+      return;
+    }
+    song = structuredClone(found);
+    charts = (await ctx.db.chartsForSong(song.id)).map((c) => structuredClone(c));
+    if (!charts.length) charts = [makeEmptyChart(song.id, 'five', 'medium')];
+    activeIdx = 0;
+    notes = charts[0].notes;
+    selection.clear();
+    undoStack.length = redoStack.length = 0;
+    playheadBeat = 0;
+    scrollPx = -40;
+    dirty = false;
+    renderToolbars();
+    scrollToPlayhead();
+    scrubTotal.textContent = fmtTime(song.durationMs);
+    await loadAudio();
+  }
+
+  async function switchSong(id: string): Promise<void> {
+    if (!id || id === song?.id) return;
+    if (recording) stopRecord();
+    if (dirty && !confirm('Switch song? Unsaved changes will be lost.')) {
+      renderToolbars(); // snap the dropdown back to the current song
+      return;
+    }
+    conductor.stop();
+    playing = false;
+    await loadSong(id);
+  }
+
+  // ---- boot ----
+  void (async () => {
+    if (params.resume) {
+      allSongs = (await ctx.db.songs()).sort((a, b) => a.title.localeCompare(b.title));
+      song = params.resume.song;
+      charts = params.resume.charts;
+      activeIdx = clamp(params.resume.activeIdx, 0, charts.length - 1);
+      playheadBeat = msToBeat(song, params.resume.playheadMs);
+      dirty = true;
+      notes = charts[activeIdx].notes;
+      renderToolbars();
+      scrollToPlayhead();
+      scrubTotal.textContent = fmtTime(song.durationMs);
+      await loadAudio();
+    } else {
+      await loadSong(params.songId);
     }
   })();
 
@@ -793,6 +931,8 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
       cancelAnimationFrame(rafId);
       conductor.stop();
       window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keydown', onRecKey, true);
+      window.removeEventListener('keyup', onRecKey, true);
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
     },

@@ -131,9 +131,27 @@ export function settingsScreen(root: HTMLElement, ctx: AppCtx, _params: any): Sc
       el('div', { class: 'muted sm' }, 'One-handed play: rebind all five keys to one side of the keyboard above.'),
     ));
 
+    // menu/background music volume with live preview
+    const musicVal = el('span', { class: 'muted sm vol-val' }, `${Math.round(s.menuMusicVolume * 100)}%`);
+    const musicSlider = el('input', {
+      type: 'range',
+      min: '0',
+      max: '100',
+      step: '1',
+      value: String(Math.round(s.menuMusicVolume * 100)),
+      oninput: (e: Event) => {
+        s.menuMusicVolume = Number((e.target as HTMLInputElement).value) / 100;
+        ctx.audio.setMenuMusicVolume(s.menuMusicVolume);
+        musicVal.textContent = `${Math.round(s.menuMusicVolume * 100)}%`;
+      },
+      onchange: () => ctx.saveSettings(),
+    });
+
     page.append(el('div', { class: 'panel' },
       el('h3', null, 'Audio & Online'),
       volumeRow(ctx),
+      el('div', { class: 'form-row' }, el('label', null, 'Menu music'), musicSlider, musicVal),
+      row('UI sounds (hover/click)', checkbox(s.uiSounds, (v) => (s.uiSounds = v))),
       row('Hit sounds', checkbox(s.hitSounds, (v) => (s.hitSounds = v))),
       row('Multiplayer server', el('input', { type: 'text', value: s.serverUrl, style: { width: '240px' }, onchange: (e: Event) => (s.serverUrl = (e.target as HTMLInputElement).value) })),
     ));

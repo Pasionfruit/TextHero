@@ -23,6 +23,10 @@ export interface Settings {
   hitSounds: boolean;
   /** master output volume 0..1 */
   volume: number;
+  /** menu/background music volume 0..1 (0 = off) */
+  menuMusicVolume: number;
+  /** hover/click sound effects on menus */
+  uiSounds: boolean;
   bgDim: number;
   particles: boolean;
   reducedEffects: boolean;
@@ -74,6 +78,8 @@ export const DEFAULT_SETTINGS: Settings = {
   fontFamily: 'system-ui',
   hitSounds: true,
   volume: 0.9,
+  menuMusicVolume: 0.1,
+  uiSounds: true,
   bgDim: 0.5,
   particles: true,
   reducedEffects: false,
@@ -97,6 +103,9 @@ export function loadSettings(): Settings {
       windows: { ...DEFAULT_SETTINGS.windows },
     };
     s.volume = Number.isFinite(Number(parsed.volume)) ? Math.min(1, Math.max(0, Number(parsed.volume))) : DEFAULT_SETTINGS.volume;
+    s.menuMusicVolume = Number.isFinite(Number(parsed.menuMusicVolume))
+      ? Math.min(1, Math.max(0, Number(parsed.menuMusicVolume)))
+      : DEFAULT_SETTINGS.menuMusicVolume;
     // a saved localhost server URL on a deployed origin would silently send
     // scores/lobbies to the player's own machine — never let that stick
     if (

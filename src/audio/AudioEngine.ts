@@ -8,6 +8,12 @@ export class AudioEngine {
   private bufferCache = new Map<string, AudioBuffer>();
   private previewSrc: AudioBufferSourceNode | null = null;
   private previewOnEnd: (() => void) | null = null;
+  private uiBuffers = new Map<string, AudioBuffer>();
+  private bgSource: AudioBufferSourceNode | null = null;
+  private bgGain: GainNode | null = null;
+  private bgUrl: string | null = null;
+  private bgVolume = 0.35;
+  private bgDucked = false;
 
   constructor() {
     this.ctx = new AudioContext({ latencyHint: 'interactive' });
@@ -69,9 +75,89 @@ export class AudioEngine {
     return buf;
   }
 
+  private async uiBuffer(url: string): Promise<AudioBuffer> {
+    let buf = this.uiBuffers.get(url);
+    if (!buf) {
+      const res = await fetch(url);
+      buf = await this.ctx.decodeAudioData(await res.arrayBuffer());
+      this.uiBuffers.set(url, buf);
+    }
+    return buf;
+  }
+
+  /** One-shot UI sound (hover, click). Silent until the first user gesture. */
+  async playUiSound(url: string, volume = 0.8): Promise<void> {
+    try {
+      if (this.ctx.state !== 'running') return;
+      const buf = await this.uiBuffer(url);
+      if (this.ctx.state !== 'running') return;
+      const src = this.ctx.createBufferSource();
+      src.buffer = buf;
+      const g = this.ctx.createGain();
+      g.gain.value = volume;
+      src.connect(g).connect(this.master);
+      src.start();
+    } catch {
+      /* decorative — never block on it */
+    }
+  }
+
+  /** Loop background music (menu screens). No-op until a user gesture unlocks audio. */
+  async startMenuMusic(url: string): Promise<void> {
+    if (this.bgSource && this.bgUrl === url) return;
+    this.stopMenuMusic();
+    this.bgUrl = url;
+    try {
+      if (this.ctx.state !== 'running') return; // retried on the next gesture
+      const buf = await this.uiBuffer(url);
+      if (this.bgUrl !== url || this.bgSource || this.ctx.state !== 'running') return;
+      const src = this.ctx.createBufferSource();
+      src.buffer = buf;
+      src.loop = true;
+      const g = this.ctx.createGain();
+      g.gain.value = this.bgDucked ? 0 : this.bgVolume;
+      src.connect(g).connect(this.master);
+      src.start();
+      this.bgSource = src;
+      this.bgGain = g;
+    } catch {
+      /* decorative */
+    }
+  }
+
+  stopMenuMusic(): void {
+    if (this.bgSource) {
+      try {
+        this.bgSource.stop();
+      } catch {
+        /* already stopped */
+      }
+      this.bgSource.disconnect();
+    }
+    this.bgSource = null;
+    this.bgGain = null;
+    this.bgUrl = null;
+  }
+
+  setMenuMusicVolume(v: number): void {
+    this.bgVolume = Math.min(1, Math.max(0, v));
+    if (this.bgGain && !this.bgDucked) this.bgGain.gain.setTargetAtTime(this.bgVolume, this.ctx.currentTime, 0.05);
+  }
+
+  /** Pause the menu music instantly (song preview playing); restore with a short fade-in. */
+  duckMenuMusic(ducked: boolean): void {
+    this.bgDucked = ducked;
+    if (!this.bgGain) return;
+    const g = this.bgGain.gain;
+    g.cancelScheduledValues(this.ctx.currentTime);
+    if (ducked) g.setValueAtTime(0, this.ctx.currentTime);
+    else g.setTargetAtTime(this.bgVolume, this.ctx.currentTime, 0.15);
+  }
+
   /** Play a faded snippet of a song (song-select preview). Only one preview at a time. */
   startPreview(buf: AudioBuffer, durSec = 12, onEnd?: () => void): void {
     this.stopPreview();
+    this.duckMenuMusic(true);
     const t = this.ctx.currentTime;
     // start around the 35% mark — usually past the intro, into the hook
     const from = Math.min(buf.duration * 0.35, Math.max(0, buf.duration - durSec));
@@ -93,6 +179,7 @@ export class AudioEngine {
   }
 
   stopPreview(): void {
+    this.duckMenuMusic(false);
     const src = this.previewSrc;
     const onEnd = this.previewOnEnd;
     this.previewSrc = null;

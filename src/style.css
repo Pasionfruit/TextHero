@@ -253,13 +253,36 @@ input[type="range"] { accent-color: var(--accent); padding: 0; border: none; bac
 }
 .song-detail h2 { font-family: var(--font-display); font-size: 28px; font-weight: 400; letter-spacing: 1px; }
 .song-filter { width: 100%; margin-bottom: 8px; }
-.genre-filter { width: 100%; margin-bottom: 8px; }
+/* genre multiselect popover */
+.genre-wrap { position: relative; display: flex; gap: 6px; margin-bottom: 8px; }
+.genre-btn { flex: 1; text-align: left; }
+.genre-menu {
+  position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 40;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 6px;
+  max-height: 292px; /* ~10 rows, then scroll */
+  overflow-y: auto;
+}
+.genre-menu.hide { display: none; }
+.genre-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px; border-radius: 6px;
+  font-size: 13px; cursor: pointer; user-select: none;
+}
+.genre-item:hover { background: var(--surface2); }
 .card-play {
   margin-left: auto; flex-shrink: 0;
   width: 38px; height: 34px; padding: 0; border-radius: 8px;
   display: inline-flex; align-items: center; justify-content: center;
 }
 .diff-label { margin-top: 12px; letter-spacing: 2.5px; text-transform: uppercase; font-weight: 700; font-size: 11px; }
+/* leaderboard tables show ~5 rows, then scroll */
+.lb-scroll { max-height: 182px; overflow-y: auto; }
+.lb-scroll .table th { position: sticky; top: 0; background: var(--surface); }
+.flex-spacer { flex: 1; }
 .play-setup { min-width: 420px; }
 .play-setup .panel { margin: 10px 0; }
 @media (max-width: 500px) { .play-setup { min-width: 0; } }
@@ -376,10 +399,44 @@ input[type="range"] { accent-color: var(--accent); padding: 0; border: none; bac
 }
 .editor-toolbar .sep { width: 1px; height: 20px; background: var(--border-strong); margin: 0 5px; }
 .editor-song-select { max-width: 220px; }
+/* the editor's top navbar wears the accent color */
+.editor-toolbar.accent { background: var(--accent); border-bottom-color: transparent; }
+.editor-toolbar.accent .muted { color: var(--on-accent); opacity: 0.75; }
+.editor-toolbar.accent .sep { background: rgba(0, 0, 0, 0.25); }
+.editor-toolbar.accent .btn { background: rgba(0, 0, 0, 0.5); color: #fff; border-color: transparent; }
+.editor-toolbar.accent .btn:hover { background: rgba(0, 0, 0, 0.65); }
+.editor-toolbar.accent .btn.primary { background: var(--on-accent); color: var(--accent); }
+:root[data-theme='light'] .editor-toolbar.accent .btn { background: rgba(255, 255, 255, 0.85); color: var(--accent-dim); }
+:root[data-theme='light'] .editor-toolbar.accent .btn:hover { background: #fff; }
+:root[data-theme='light'] .editor-toolbar.accent .muted { color: #fff; opacity: 0.9; }
 /* min-height:0 lets the canvas shrink below its intrinsic (attribute) size —
    without it the fitCanvas feedback loop ratchets the canvas taller and pushes
    the scrubber/status bar off-screen */
-.editor-canvas { flex: 1 1 0; min-height: 0; width: 100%; cursor: crosshair; }
+.editor-canvas { flex: 1 1 0; min-height: 0; min-width: 0; cursor: crosshair; }
+
+/* chart area + collapsible controls panel on the right */
+.editor-main { display: flex; flex: 1 1 0; min-height: 0; }
+.editor-side {
+  width: 250px; flex-shrink: 0;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  padding: 10px 12px;
+  overflow-y: auto;
+}
+.editor-side:not([open]) { width: auto; }
+.editor-side summary {
+  cursor: pointer; user-select: none; list-style: none;
+  color: var(--muted); font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 2px;
+}
+.editor-side summary::before { content: '▸ '; color: var(--accent); }
+.editor-side[open] summary::before { content: '▾ '; }
+.side-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin: 10px 0; }
+.side-row.nowrap { flex-wrap: nowrap; }
+/* zoom buttons pinned to the bottom-right of the controls panel
+   (absolute — <details> doesn't honor flex layout on itself) */
+.editor-side { position: relative; }
+.zoom-row { position: absolute; bottom: 10px; right: 12px; margin: 0; }
 .editor-status {
   padding: 6px 12px; font-size: 11px; color: var(--muted);
   background: var(--surface);

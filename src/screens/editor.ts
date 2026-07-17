@@ -71,7 +71,7 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
   const WAVE_X = 8, WAVE_W = 84, RULER_X = 100, LANES_X = 148;
 
   // ---- DOM ----
-  const toolbar = el('div', { class: 'editor-toolbar' });
+  const toolbar = el('div', { class: 'editor-toolbar accent' });
   const toolbar2 = el('div', { class: 'editor-toolbar' });
   const canvas = el('canvas', { class: 'editor-canvas' });
   const status = el('div', { class: 'editor-status' });
@@ -86,7 +86,12 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
   const scrubTrack = el('div', { class: 'scrub-track' }, scrubFill, scrubHandle);
   const scrubber = el('div', { class: 'editor-scrubber' }, scrubPlayBtn, scrubNow, scrubTrack, scrubTotal);
 
-  const wrap = el('div', { class: 'editor-wrap' }, toolbar, toolbar2, canvas, scrubber, status);
+  // collapsible controls panel to the right of the chart
+  const sideContent = el('div', { class: 'side-content' });
+  const sidePanel = el('details', { class: 'editor-side', open: true }, el('summary', null, 'Controls'), sideContent);
+  const editorMain = el('div', { class: 'editor-main' }, canvas, sidePanel);
+
+  const wrap = el('div', { class: 'editor-wrap' }, toolbar, toolbar2, editorMain, scrubber, status);
   root.append(wrap);
 
   const active = (): ChartData | null => charts[activeIdx] ?? null;
@@ -144,13 +149,16 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
     const bpmIn = el('input', { type: 'number', value: String(song.bpm), step: '0.01', min: '20', max: '400', style: { width: '72px' }, onchange: (e: Event) => { song!.bpm = Number((e.target as HTMLInputElement).value) || song!.bpm; dirty = true; } });
     const offIn = el('input', { type: 'number', value: String(song.offsetMs), step: '1', style: { width: '72px' }, onchange: (e: Event) => { song!.offsetMs = Number((e.target as HTMLInputElement).value) || 0; dirty = true; } });
 
-    // tap BPM
+    // tap BPM — the ✕ button clears the taps AND restores the pre-tap BPM
     let taps: number[] = [];
+    let preTapBpm: number | null = null;
     const tapBtn = el('button', {
       class: 'btn sm',
+      title: 'Tap along to set the BPM',
       onclick: () => {
         const now = performance.now();
         taps = taps.filter((t) => now - t < 3000);
+        if (!taps.length) preTapBpm = song!.bpm;
         taps.push(now);
         if (taps.length >= 4) {
           const iv = (taps[taps.length - 1] - taps[0]) / (taps.length - 1);
@@ -172,28 +180,55 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
       songSel.append(el('option', { value: sd.id, selected: sd.id === song.id }, `${sd.title} — ${sd.artist}`));
     }
 
+    // heading: ‹ | song picker | title, artist, BPM, offset … save/export right
     toolbar.append(
-      el('button', { class: 'btn sm', onclick: () => exit() }, '← Back'),
+      el('button', { class: 'btn sm', title: 'Back to menu', onclick: () => exit() }, icon('chevronleft', 16)),
       songSel,
       el('span', { class: 'sep' }),
       titleIn, artistIn,
-      el('span', { class: 'muted sm' }, 'BPM'), bpmIn, tapBtn,
+      el('span', { class: 'muted sm' }, 'BPM'), bpmIn,
       el('span', { class: 'muted sm' }, 'Offset'), offIn,
-      el('span', { class: 'sep' }),
-      el('span', { class: 'muted sm' }, 'Snap'),
-      selectInput(Object.keys(SNAPS), snapKey, (v) => (snapKey = v)),
-      el('button', { class: 'btn sm', title: 'Zoom in', onclick: () => (pxPerBeat = clamp(pxPerBeat * 1.25, 12, 320)) }, icon('zoomin')),
-      el('button', { class: 'btn sm', title: 'Zoom out', onclick: () => (pxPerBeat = clamp(pxPerBeat / 1.25, 12, 320)) }, icon('zoomout')),
-      el('span', { class: 'sep' }),
-      el('button', { class: 'btn sm', onclick: () => togglePlay() }, icon('play'), 'Play'),
-      el('button', { class: 'btn sm' + (recording ? ' danger' : ''), title: 'Play the song and tap your lanes to place notes live', onclick: () => toggleRecord() }, icon(recording ? 'stop' : 'record'), recording ? 'Stop rec' : 'Record'),
-      el('button', { class: 'btn sm primary', onclick: () => testPlay() }, icon('play'), 'Test (F5)'),
+      el('span', { class: 'flex-spacer' }),
       el('button', {
         class: 'btn sm' + (isAdmin ? ' primary' : ''),
         title: isAdmin ? 'Save and publish as the version all players play' : 'Save locally',
         onclick: () => void save(),
       }, icon(isAdmin ? 'upload' : 'save'), isAdmin ? 'Save & Publish' : 'Save'),
       el('button', { class: 'btn sm', onclick: () => exportChart() }, 'Export'),
+    );
+
+    // side panel: transport in one row, tap/snap below, zoom pinned bottom-right
+    sideContent.innerHTML = '';
+    const tapClear = el('button', {
+      class: 'btn sm',
+      title: 'Clear taps and restore the previous BPM',
+      onclick: () => {
+        taps = [];
+        tapBtn.textContent = 'Tap';
+        if (preTapBpm !== null && preTapBpm !== song!.bpm) {
+          song!.bpm = preTapBpm;
+          (bpmIn as HTMLInputElement).value = String(preTapBpm);
+          dirty = true;
+          toast(`BPM restored to ${preTapBpm}`);
+        }
+        preTapBpm = null;
+      },
+    }, icon('x'));
+    sideContent.append(
+      el('div', { class: 'side-row nowrap' },
+        el('button', { class: 'btn sm', onclick: () => togglePlay() }, icon('play'), 'Play'),
+        el('button', { class: 'btn sm' + (recording ? ' danger' : ''), title: 'Play the song and tap your lanes to place notes live', onclick: () => toggleRecord() }, icon(recording ? 'stop' : 'record'), recording ? 'Stop rec' : 'Record'),
+        el('button', { class: 'btn sm primary', title: 'Test play from the playhead (F5)', onclick: () => testPlay() }, icon('play'), 'Test'),
+      ),
+      el('div', { class: 'side-row' },
+        tapBtn, tapClear,
+        el('span', { class: 'muted sm' }, 'Snap'),
+        selectInput(Object.keys(SNAPS), snapKey, (v) => (snapKey = v)),
+      ),
+      el('div', { class: 'side-row zoom-row' },
+        el('button', { class: 'btn sm', title: 'Zoom in', onclick: () => (pxPerBeat = clamp(pxPerBeat * 1.25, 12, 320)) }, icon('zoomin')),
+        el('button', { class: 'btn sm', title: 'Zoom out', onclick: () => (pxPerBeat = clamp(pxPerBeat / 1.25, 12, 320)) }, icon('zoomout')),
+      ),
     );
 
     // chart tabs

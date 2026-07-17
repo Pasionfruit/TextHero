@@ -34,7 +34,7 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
     ),
   );
   let filterText = '';
-  let filterGenre = '';
+  const filterGenres = new Set<string>();
   const filterIn = el('input', {
     type: 'search',
     class: 'song-filter',
@@ -44,32 +44,67 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
       renderList();
     },
   });
-  const genreSel = el('select', {
-    class: 'genre-filter',
-    onchange: (e: Event) => {
-      filterGenre = (e.target as HTMLSelectElement).value;
+
+  // genre multiselect: a popover with checkboxes (max ~10 visible, scrolls)
+  const genreLabel = (): string => (filterGenres.size ? `Genres (${filterGenres.size})` : 'All genres');
+  const genreMenu = el('div', { class: 'genre-menu hide' });
+  const genreBtn = el('button', {
+    class: 'btn sm genre-btn',
+    title: 'Filter by genre',
+    onclick: (e: Event) => {
+      e.stopPropagation();
+      genreMenu.classList.toggle('hide');
+    },
+  }, genreLabel()) as HTMLButtonElement;
+  const genreClear = el('button', {
+    class: 'btn sm',
+    title: 'Clear genre filter',
+    onclick: () => {
+      filterGenres.clear();
+      rebuildGenreOptions();
       renderList();
     },
-  });
+  }, icon('x'));
+  const genreWrap = el('div', { class: 'genre-wrap' }, genreBtn, genreClear, genreMenu);
+  const onDocClick = (e: MouseEvent): void => {
+    if (!genreWrap.contains(e.target as Node)) genreMenu.classList.add('hide');
+  };
+  document.addEventListener('click', onDocClick);
   const listBox = el('div', { class: 'song-list' });
   const detailBox = el('div', { class: 'song-detail' });
   page.append(header, el('div', { class: 'select-cols' },
     detailBox,
-    el('div', { class: 'song-col' }, filterIn, genreSel, listBox, el('div', { class: 'muted sm wheel-hint' }, '↑ ↓ to browse · Enter to play')),
+    el('div', { class: 'song-col' }, filterIn, genreWrap, listBox, el('div', { class: 'muted sm wheel-hint' }, '↑ ↓ to browse · Enter to play')),
   ));
 
   function rebuildGenreOptions(): void {
     const genres = [...new Set(songs.map((x) => x.genre).filter(Boolean))].sort() as string[];
-    if (filterGenre && !genres.includes(filterGenre)) filterGenre = '';
-    genreSel.replaceChildren(
-      el('option', { value: '', selected: filterGenre === '' }, 'All genres'),
-      ...genres.map((g) => el('option', { value: g, selected: g === filterGenre }, g)),
+    for (const g of [...filterGenres]) if (!genres.includes(g)) filterGenres.delete(g);
+    genreMenu.replaceChildren(
+      ...genres.map((g) =>
+        el('label', { class: 'genre-item' },
+          el('input', {
+            type: 'checkbox',
+            value: g,
+            checked: filterGenres.has(g),
+            onchange: (e: Event) => {
+              const cb = e.target as HTMLInputElement;
+              if (cb.checked) filterGenres.add(g);
+              else filterGenres.delete(g);
+              genreBtn.textContent = genreLabel();
+              renderList();
+            },
+          }),
+          g,
+        ),
+      ),
     );
+    genreBtn.textContent = genreLabel();
   }
 
   const visibleSongs = (): SongData[] =>
     songs.filter((x) =>
-      (!filterGenre || x.genre === filterGenre) &&
+      (!filterGenres.size || (x.genre != null && filterGenres.has(x.genre))) &&
       (!filterText || `${x.title} ${x.artist}`.toLowerCase().includes(filterText)));
 
   const s = ctx.settings;
@@ -95,6 +130,7 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
     }
     void selectSong(song); // also stops any other song's preview
     previewingId = song.id;
+    ctx.audio.duckMenuMusic(true); // pause menu music right away, before decoding
     renderList();
     try {
       await ctx.audio.ensureRunning();
@@ -109,6 +145,7 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
     } catch (err) {
       toast(`Preview failed: ${(err as Error).message}`);
       if (previewingId === song.id) previewingId = null;
+      ctx.audio.duckMenuMusic(false);
       renderList();
     }
   }
@@ -308,7 +345,7 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
               ),
             );
           });
-          globalLb.append(table);
+          globalLb.append(el('div', { class: 'lb-scroll' }, table));
         })
         .catch(() => {
           globalLb.innerHTML = '';
@@ -366,7 +403,7 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
             ),
           );
         });
-        lb.append(table);
+        lb.append(el('div', { class: 'lb-scroll' }, table));
       }
       detailBox.append(lb);
     }
@@ -697,6 +734,7 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
     destroy() {
       ctx.audio.stopPreview();
       clearTimeout(libTimer);
+      document.removeEventListener('click', onDocClick);
       window.removeEventListener(LIBRARY_CHANGED_EVENT, onLibraryChanged);
       window.removeEventListener('keydown', onNavKey);
       ctx.saveSettings();

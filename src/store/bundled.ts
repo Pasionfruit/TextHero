@@ -111,6 +111,16 @@ export async function importBundledSongs(db: DB, audio: AudioEngine, onImported?
   let imported = 0;
   for (const [path, url] of Object.entries(BUNDLED_MP3S)) {
     const meta = parseBundled(path, url);
+    // files without a " - " separator are UI/system sounds (hover, click,
+    // menu music), not library songs — skip them and remove stale imports
+    if (!decodeURIComponent(path.split('/').pop()!).includes(' - ')) {
+      try {
+        if (await db.get<SongData>('songs', meta.id)) await db.deleteSong(meta.id);
+      } catch {
+        /* nothing stale */
+      }
+      continue;
+    }
     try {
       const existing = await db.get<SongData>('songs', meta.id);
       if (existing) {

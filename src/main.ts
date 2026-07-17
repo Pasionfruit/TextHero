@@ -1,5 +1,6 @@
 import type { AppCtx, Screen, ScreenFactory, ScreenName } from './app';
 import { AudioEngine } from './audio/AudioEngine';
+import { MENU_MUSIC } from './audio/uiSounds';
 import { buildDemoCharts, demoSongData } from './charts/chart';
 import { NetClient } from './net/NetClient';
 import { DB } from './store/db';
@@ -57,7 +58,17 @@ async function boot(): Promise<void> {
   applyTheme(settings);
   const audio = new AudioEngine();
   audio.setVolume(settings.volume);
+  audio.setMenuMusicVolume(settings.menuMusicVolume);
   const net = new NetClient();
+
+  // chill background loop on every screen except gameplay and the editor
+  // (both play their own audio); kicks in on the first user gesture
+  const MUSIC_SCREENS = new Set<ScreenName>(['menu', 'songselect', 'settings', 'lobby', 'results']);
+  let currentScreen: ScreenName = 'menu';
+  const syncMusic = (): void => {
+    if (MUSIC_SCREENS.has(currentScreen)) void audio.startMenuMusic(MENU_MUSIC);
+    else audio.stopMenuMusic();
+  };
 
   // icon-only theme toggle, top-right on every page except during play
   // (the pause menu carries its own toggle there)
@@ -109,12 +120,15 @@ async function boot(): Promise<void> {
       applyTheme(settings);
       themeBtn.style.display = screen === 'play' ? 'none' : '';
       updateThemeBtn();
+      currentScreen = screen;
+      syncMusic();
       current = SCREENS[screen](root, ctx, params);
     },
   };
 
-  // browsers require a user gesture before audio can start
-  const unlock = () => void audio.ensureRunning();
+  // browsers require a user gesture before audio can start; once unlocked,
+  // (re)start the background music for the current screen
+  const unlock = () => void audio.ensureRunning().then(syncMusic);
   window.addEventListener('pointerdown', unlock);
   window.addEventListener('keydown', unlock);
 

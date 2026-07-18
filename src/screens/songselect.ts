@@ -319,7 +319,7 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
           );
           scores.forEach((sc, i) => {
             table.append(
-              el('tr', null,
+              el('tr', { class: i < 3 ? `rank-${i + 1}` : '' },
                 el('td', null, String(i + 1)),
                 el('td', null, sc.player + (sc.noFail ? ' (NF)' : '') + (sc.failed ? ' ✗' : '')),
                 el('td', null, String(sc.score)),
@@ -373,7 +373,7 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
         );
         scores.forEach((sc: ScoreRecord, i) => {
           table.append(
-            el('tr', null,
+            el('tr', { class: i < 3 ? `rank-${i + 1}` : '' },
               el('td', null, String(i + 1)),
               el('td', null, sc.player + (sc.noFail ? ' (NF)' : '') + (sc.failed ? ' ✗' : '')),
               el('td', null, String(sc.score)),

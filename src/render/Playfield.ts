@@ -52,6 +52,8 @@ export class Playfield {
   private judgment: { name: string; at: number } | null = null;
   private comboPulseAt = 0;
   private lastCombo = 0;
+  private lastCountDigit = 0;
+  private countPulseAt = 0;
   private particles: Particle[] = [];
   private downLanes = new Set<number>();
   private colGlow: number[];
@@ -391,17 +393,19 @@ export class Playfield {
       ctx.fillText('C O M B O', W / 2, H * 0.32 + 15);
     }
 
-    // fever status, anchored under the score card (top-right)
+    // fever status, anchored under the score card (top-right); the fever hue
+    // is amber on dark, dark blue on the cream theme
     const feverY = hudY + hudH + 24;
+    const feverRgb = light ? '14, 42, 76' : '255, 176, 55';
     ctx.textAlign = 'right';
     if (hud.fever) {
       const pulse = 0.65 + 0.35 * Math.sin(perfNow / 90);
       ctx.font = `800 19px ${font}`;
-      ctx.fillStyle = `rgba(255, 176, 55, ${pulse})`;
+      ctx.fillStyle = `rgba(${feverRgb}, ${pulse})`;
       ctx.fillText('FEVER ×2', hudX + hudW - 14, feverY);
     } else if (hud.feverReady && Math.sin(perfNow / 140) > -0.2) {
       ctx.font = `800 15px ${font}`;
-      ctx.fillStyle = '#ffb037';
+      ctx.fillStyle = `rgb(${feverRgb})`;
       ctx.fillText('FEVER READY — PRESS ;', hudX + hudW - 14, feverY);
     } else if (hud.feverCooldownSec) {
       ctx.font = `600 13px ${font}`;
@@ -435,10 +439,20 @@ export class Playfield {
     }
 
     if (countdownSec != null && countdownSec > 0) {
+      // styled to match the resume countdown: big accent bubble digits that
+      // pop in on each change
+      const digit = Math.ceil(countdownSec);
+      if (digit !== this.lastCountDigit) {
+        this.lastCountDigit = digit;
+        this.countPulseAt = perfNow;
+      }
+      const pulse = clamp(1 - (perfNow - this.countPulseAt) / 260, 0, 1);
       ctx.textAlign = 'center';
-      ctx.font = `800 60px ${font}`;
-      ctx.fillStyle = ink(0.9);
-      ctx.fillText(String(Math.ceil(countdownSec)), W / 2, H * 0.48);
+      ctx.font = `${Math.round(72 * (1 + 0.5 * pulse))}px 'Kinder Child Kawaii Bubble', ${font}`;
+      ctx.globalAlpha = 0.3 + 0.7 * (1 - pulse);
+      ctx.fillStyle = light ? '#4a9bd1' : '#ffb037';
+      ctx.fillText(String(digit), W / 2, H * 0.48);
+      ctx.globalAlpha = 1;
     }
   }
 

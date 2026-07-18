@@ -5,3 +5,5 @@ export { default as PLAY_SFX } from './play.mp3';
 export { default as MENU_MUSIC } from './chill_bg.mp3';
 export { default as START_SFX } from './start_game.mp3';
 export { default as COUNTDOWN_SFX } from './countdown.mp3';
+export { default as WIN_SFX } from './win.mp3';
+export { default as BEST_SFX } from './best.mp3';

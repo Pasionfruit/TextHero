@@ -1,10 +1,12 @@
 import type { AppCtx, ResultsParams, Screen } from '../app';
 import type { ScoreRecord } from '../types';
 import { JUDGMENTS } from '../types';
+import { BEST_SFX, WIN_SFX } from '../audio/uiSounds';
 import { el, fmtPct, toast } from '../util';
 import { judgeColor } from '../store/settings';
 import { modeName } from '../charts/chart';
-import { nameAllowed, submitScore } from '../net/api';
+import { fetchLeaderboard, nameAllowed, submitScore } from '../net/api';
+import { icon } from '../ui/icons';
 
 const GRADE_COLORS: Record<string, string> = {
   SS: '#ffd700',
@@ -21,6 +23,24 @@ export function resultsScreen(root: HTMLElement, ctx: AppCtx, params: ResultsPar
   const offs: Array<() => void> = [];
   const page = el('div', { class: 'page' });
   root.append(page);
+
+  // fanfare: win.mp3 for a clean clear, best.mp3 when the run tops the
+  // current global leaderboard for this chart
+  const cleared = !params.practice && !params.players.some((p) => p.failed);
+  if (cleared && ctx.settings.uiSounds) {
+    void (async () => {
+      let sfx = WIN_SFX;
+      if (params.players.length === 1 && params.playParams.rate === 1) {
+        try {
+          const top = await fetchLeaderboard(ctx.settings, params.chart.id, 1);
+          if (!top.length || params.players[0].score > top[0].score) sfx = BEST_SFX;
+        } catch {
+          /* server unreachable — plain win sound */
+        }
+      }
+      void ctx.audio.playUiSound(sfx, 0.8);
+    })();
+  }
 
   page.append(
     el('h1', { class: 'page-title' }, params.players.some((p) => p.failed) && params.players.length === 1 ? 'Failed…' : 'Results'),
@@ -81,8 +101,8 @@ export function resultsScreen(root: HTMLElement, ctx: AppCtx, params: ResultsPar
     const panel = el('div', { class: 'panel' },
       el('h2', null, 'Save this run?'),
       el('div', { class: 'form-row' }, el('label', null, 'Player name'), nameIn),
-      el('div', { class: 'btn-row' }, saveBtn, discardBtn),
       statusEl,
+      el('div', { class: 'btn-row save-actions' }, discardBtn, saveBtn), // discard left, save right
     );
     page.append(panel);
 
@@ -192,10 +212,10 @@ export function resultsScreen(root: HTMLElement, ctx: AppCtx, params: ResultsPar
     offs.push(ctx.net.on('results', (m) => render(m.results)));
   }
 
-  const btns = el('div', { class: 'btn-row' });
-  if (!params.online) {
-    btns.append(el('button', { class: 'btn primary', onclick: () => ctx.nav('play', params.playParams) }, 'Retry'));
-  }
+  // footer: main menu + watch replay bottom-left; retry ⟳ + song select bottom-right
+  const leftBtns = el('div', { class: 'row' },
+    el('button', { class: 'btn', onclick: () => ctx.nav('menu') }, 'Main menu'),
+  );
   if (params.replaySavedId) {
     watchBtn = el('button', {
       class: 'btn',
@@ -207,14 +227,17 @@ export function resultsScreen(root: HTMLElement, ctx: AppCtx, params: ResultsPar
         }
       },
     }, 'Watch replay') as HTMLButtonElement;
-    btns.append(watchBtn);
+    leftBtns.append(watchBtn);
   }
-  btns.append(
+  const rightBtns = el('div', { class: 'row' });
+  if (!params.online) {
+    rightBtns.append(el('button', { class: 'btn primary', title: 'Retry this run', onclick: () => ctx.nav('play', params.playParams) }, icon('retry'), 'Retry'));
+  }
+  rightBtns.append(
     el('button', { class: 'btn', onclick: () => ctx.nav(params.online ? 'lobby' : 'songselect', params.online ? {} : { songId: params.song.id }) },
       params.online ? 'Back to lobby' : 'Song select'),
-    el('button', { class: 'btn', onclick: () => ctx.nav('menu') }, 'Main menu'),
   );
-  page.append(btns);
+  page.append(el('div', { class: 'results-foot' }, leftBtns, rightBtns));
 
   return {
     destroy() {

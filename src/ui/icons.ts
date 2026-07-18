@@ -19,6 +19,7 @@ const ICONS = {
   x: '<path d="M19 6.4L17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12z"/>',
   crown: '<path d="M3 7l4.5 4L12 4l4.5 7L21 7l-1.5 11h-15zM4.5 20h15v1.5h-15z"/>',
   chevronleft: '<path d="M15.4 5.4L14 4l-8 8 8 8 1.4-1.4L8.8 12z"/>',
+  retry: '<path d="M12 5V1L6.5 6.5 12 12V8a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/>',
 } as const;
 
 export type IconName = keyof typeof ICONS;

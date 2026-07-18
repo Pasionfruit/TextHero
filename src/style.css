@@ -85,6 +85,9 @@ body {
 #bg-decor { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
 /* darker, more saturated waves on the cream background */
 :root[data-theme='light'] #bg-decor { opacity: 1; filter: brightness(0.72) saturate(1.5); }
+/* darker still while a song is being played */
+body.in-play #bg-decor { filter: brightness(0.55) saturate(1.2); }
+:root[data-theme='light'] body.in-play #bg-decor { filter: brightness(0.5) saturate(1.4); }
 
 /* fever: the backdrop waves travel like water (one 400px wavelength per loop) */
 body.fever-bg #bg-decor path {
@@ -292,6 +295,10 @@ input[type="range"] { accent-color: var(--accent); padding: 0; border: none; bac
 /* leaderboard tables show ~5 rows, then scroll */
 .lb-scroll { max-height: 182px; overflow-y: auto; }
 .lb-scroll .table th { position: sticky; top: 0; background: var(--surface); }
+/* medal colors for the podium */
+.table tr.rank-1 td:nth-child(-n+2) { color: #ffd700; font-weight: 800; }
+.table tr.rank-2 td:nth-child(-n+2) { color: #b9c2cc; font-weight: 700; }
+.table tr.rank-3 td:nth-child(-n+2) { color: #cd7f32; font-weight: 700; }
 .flex-spacer { flex: 1; }
 .play-setup { min-width: 420px; }
 .play-setup .panel { margin: 10px 0; }
@@ -370,6 +377,7 @@ input[type="range"] { accent-color: var(--accent); padding: 0; border: none; bac
 .pause-panel { display: flex; flex-direction: column; gap: 10px; min-width: 260px; text-align: center; }
 /* display font for the pause dialog and big container action buttons */
 .pause-panel h2 { font-family: var(--font-display); font-size: 26px; font-weight: 400; letter-spacing: 2px; }
+.pause-panel h2.resume-count { font-size: 72px; color: var(--accent); line-height: 1.1; }
 .pause-panel .btn, .btn.big, .display-font { font-family: var(--font-display); font-weight: 400; letter-spacing: 1.5px; }
 .pause-settings { border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 8px 0; text-align: left; }
 .pause-settings .form-row > label { min-width: 60px; }
@@ -398,6 +406,10 @@ input[type="range"] { accent-color: var(--accent); padding: 0; border: none; bac
 .counts { margin-top: 12px; text-align: left; }
 .count-row { display: flex; justify-content: space-between; padding: 3px 10px; font-size: 13px; }
 .band-summary { text-align: center; }
+/* results footer: menu/replay left, retry + song select right; display font on all */
+.results-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 18px; flex-wrap: wrap; }
+.results-foot .btn, .save-actions .btn { font-family: var(--font-display); font-weight: 400; letter-spacing: 1.5px; }
+.save-actions { justify-content: space-between; margin-bottom: 0; }
 
 /* ---- editor ---- */
 .editor-wrap { position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--bg); }
@@ -499,6 +511,10 @@ input[type="range"] { accent-color: var(--accent); padding: 0; border: none; bac
   pointer-events: none; z-index: 4;
   box-shadow: inset 0 0 150px rgba(255, 176, 55, 0.45);
   animation: fever-pulse 0.45s ease-in-out infinite alternate;
+}
+/* on the cream theme the fever pulse goes dark blue instead of amber */
+:root[data-theme='light'] .play-wrap.fever::before {
+  box-shadow: inset 0 0 150px rgba(14, 42, 76, 0.5);
 }
 @keyframes fever-pulse {
   from { opacity: 0.5; }

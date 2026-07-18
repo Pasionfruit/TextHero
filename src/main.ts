@@ -122,6 +122,7 @@ async function boot(): Promise<void> {
       applyTheme(settings);
       themeBtn.style.display = screen === 'play' ? 'none' : '';
       updateThemeBtn();
+      document.body.classList.toggle('in-play', screen === 'play'); // darker backdrop waves in-game
       currentScreen = screen;
       syncMusic();
       current = SCREENS[screen](root, ctx, params);

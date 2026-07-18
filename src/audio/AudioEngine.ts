@@ -85,17 +85,40 @@ export class AudioEngine {
     return buf;
   }
 
-  /** One-shot UI sound (hover, click). Silent until the first user gesture. */
+  /** Decoded length of a UI sound in seconds (0 if it can't be decoded). */
+  async uiSoundDuration(url: string): Promise<number> {
+    try {
+      return (await this.uiBuffer(url)).duration;
+    } catch {
+      return 0;
+    }
+  }
+
+  private uiCtx: AudioContext | null = null;
+
+  /** One-shot UI sound (hover, click, countdown). Silent until the first user
+   *  gesture. While gameplay is paused the main context is suspended, so the
+   *  sound plays through a small side context instead. */
   async playUiSound(url: string, volume = 0.8): Promise<void> {
     try {
-      if (this.ctx.state !== 'running') return;
-      const buf = await this.uiBuffer(url);
-      if (this.ctx.state !== 'running') return;
-      const src = this.ctx.createBufferSource();
+      const buf = await this.uiBuffer(url); // decoding works even while suspended
+      if (this.ctx.state === 'running') {
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+        const g = this.ctx.createGain();
+        g.gain.value = volume;
+        src.connect(g).connect(this.master);
+        src.start();
+        return;
+      }
+      if (!this.pauseHold) return; // audio not yet unlocked by a gesture
+      this.uiCtx ??= new AudioContext();
+      if (this.uiCtx.state !== 'running') await this.uiCtx.resume();
+      const src = this.uiCtx.createBufferSource();
       src.buffer = buf;
-      const g = this.ctx.createGain();
-      g.gain.value = volume;
-      src.connect(g).connect(this.master);
+      const g = this.uiCtx.createGain();
+      g.gain.value = volume * this.master.gain.value;
+      src.connect(g).connect(this.uiCtx.destination);
       src.start();
     } catch {
       /* decorative — never block on it */

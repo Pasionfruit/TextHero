@@ -30,6 +30,9 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
 
   // game-start fanfare for real runs (solo + multiplayer; not replays/test-play)
   if (!isReplay && !params.test && s.uiSounds) void ctx.audio.playUiSound(START_SFX, 0.8);
+  // the count-in must last at least as long as the countdown sound — the song
+  // only starts once the countdown has finished (resolved during boot)
+  let countLeadMs = 2200;
 
   const conductor = new Conductor(ctx.audio);
   const input = new InputRouter();
@@ -271,14 +274,30 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
     return el('div', { class: 'form-row' }, el('label', null, 'Theme'), btn);
   }
 
+  let resuming = false;
   function resumeGame(fromNet = false): void {
-    if (!paused) return;
+    if (!paused || resuming) return;
     if (!fromNet && params.online && ctx.net.isConnected()) ctx.net.send('pause', { paused: false });
-    if (!isReplay && s.uiSounds) void ctx.audio.playUiSound(COUNTDOWN_SFX, 0.7);
-    overlay.classList.add('hide');
-    void conductor.resume().then(() => {
-      paused = false;
-    });
+    const finish = (): void => {
+      if (destroyed) return;
+      overlay.classList.add('hide');
+      void conductor.resume().then(() => {
+        paused = false;
+        resuming = false;
+      });
+    };
+    if (!isReplay && s.uiSounds) {
+      // hold the game frozen until the countdown sound has finished
+      resuming = true;
+      overlay.innerHTML = '';
+      overlay.append(el('div', { class: 'panel pause-panel' }, el('h2', null, 'Get ready…')));
+      void ctx.audio.playUiSound(COUNTDOWN_SFX, 0.7);
+      void ctx.audio.uiSoundDuration(COUNTDOWN_SFX).then((sec) => {
+        setTimeout(finish, Math.max(0, sec * 1000 - 80));
+      });
+    } else {
+      finish();
+    }
   }
 
   function restart(): void {
@@ -289,7 +308,7 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
     replayCursor = 0;
     buildSessions();
     if (bandState) bandState = { health: 100, combo: 0, maxCombo: 0, score: 0, failed: false };
-    startPlayback(startMs, 2000);
+    startPlayback(startMs, Math.max(2000, countLeadMs));
   }
 
   function quit(): void {
@@ -647,7 +666,10 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
     if (destroyed) return;
     overlay.classList.add('hide');
     overlay.innerHTML = '';
-    startPlayback(startMs, isReplay ? 800 : 2200);
+    if (!isReplay && s.uiSounds) {
+      countLeadMs = Math.max(countLeadMs, Math.ceil((await ctx.audio.uiSoundDuration(COUNTDOWN_SFX)) * 1000));
+    }
+    startPlayback(startMs, isReplay ? 800 : countLeadMs);
     rafId = requestAnimationFrame(frame);
   })();
 

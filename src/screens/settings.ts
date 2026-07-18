@@ -99,27 +99,29 @@ export function settingsScreen(root: HTMLElement, ctx: AppCtx, _params: any): Sc
 
     page.append(el('div', { class: 'panel' },
       el('h3', null, 'Visuals'),
-      row('Theme', selectInput(['dark', 'light'], s.theme, (v) => {
-        s.theme = v as 'dark' | 'light';
-        applyTheme(s);
-      })),
-      row('Note skin', selectInput(['gems', 'bars', 'circles', 'arrows'], s.noteSkin, (v) => (s.noteSkin = v as any))),
+      el('div', { class: 'grid2' },
+        row('Theme', selectInput(['dark', 'light'], s.theme, (v) => {
+          s.theme = v as 'dark' | 'light';
+          applyTheme(s);
+        })),
+        row('Note skin', selectInput(['gems', 'bars', 'circles', 'arrows'], s.noteSkin, (v) => (s.noteSkin = v as any))),
+        row('Scroll speed', numInput(s.scrollSpeed, 0.25, 4, 0.25, (v) => (s.scrollSpeed = v))),
+        row('Scroll direction', selectInput(['down', 'up'], s.scrollDirection, (v) => (s.scrollDirection = v as any))),
+        row('Judgment line', numInput(s.judgmentLinePos, 0.05, 0.4, 0.01, (v) => (s.judgmentLinePos = v))),
+        row('Note size', numInput(s.noteScale, 0.5, 2, 0.1, (v) => (s.noteScale = v))),
+        row('Lane spacing (px)', numInput(s.laneSpacingPx, 0, 20, 1, (v) => (s.laneSpacingPx = v))),
+        row('Background dim', numInput(s.bgDim, 0, 1, 0.05, (v) => (s.bgDim = v))),
+        row('Font', selectInput(['system-ui', 'monospace', 'serif', 'Segoe UI', 'Comic Sans MS'], s.fontFamily, (v) => (s.fontFamily = v))),
+        row('FPS limit (0 = off)', selectInput(['0', '30', '60', '120', '144', '240'], String(s.fpsCap), (v) => (s.fpsCap = Number(v)))),
+        row('Fullscreen', el('button', {
+          class: 'btn sm',
+          onclick: () => {
+            if (document.fullscreenElement) void document.exitFullscreen();
+            else void document.documentElement.requestFullscreen();
+          },
+        }, 'Toggle')),
+      ),
       colors,
-      row('Scroll speed', numInput(s.scrollSpeed, 0.25, 4, 0.25, (v) => (s.scrollSpeed = v))),
-      row('Scroll direction', selectInput(['down', 'up'], s.scrollDirection, (v) => (s.scrollDirection = v as any))),
-      row('Judgment line position', numInput(s.judgmentLinePos, 0.05, 0.4, 0.01, (v) => (s.judgmentLinePos = v))),
-      row('Note size', numInput(s.noteScale, 0.5, 2, 0.1, (v) => (s.noteScale = v))),
-      row('Lane spacing (px)', numInput(s.laneSpacingPx, 0, 20, 1, (v) => (s.laneSpacingPx = v))),
-      row('Background dim', numInput(s.bgDim, 0, 1, 0.05, (v) => (s.bgDim = v))),
-      row('Font', selectInput(['system-ui', 'monospace', 'serif', 'Segoe UI', 'Comic Sans MS'], s.fontFamily, (v) => (s.fontFamily = v))),
-      row('FPS limit (0 = off)', selectInput(['0', '30', '60', '120', '144', '240'], String(s.fpsCap), (v) => (s.fpsCap = Number(v)))),
-      row('Fullscreen', el('button', {
-        class: 'btn sm',
-        onclick: () => {
-          if (document.fullscreenElement) void document.exitFullscreen();
-          else void document.documentElement.requestFullscreen();
-        },
-      }, 'Toggle')),
     ));
 
     page.append(el('div', { class: 'panel' },

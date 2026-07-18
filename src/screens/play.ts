@@ -52,6 +52,38 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
   let lastProgressSent = 0;
   let sentEventCursor = 0;
   const onlineOthers = new Map<string, any>();
+
+  // ---- fever: press Enter on a long streak for momentary double points.
+  // The bonus rides OUTSIDE the deterministic engine: it accrues while fever
+  // is active, is forfeited if the streak breaks, and banks when fever ends.
+  const FEVER_MIN_COMBO = 25;
+  const FEVER_MS = 6000;
+  let feverOn = false;
+  let feverUntil = 0;
+  let feverExtra = 0; // at-risk bonus during the active fever
+  let feverBanked = 0; // bonus kept from completed fevers
+  const feverEligible = players.length === 1 && !band && !isReplay;
+  const displayScore = (): number => (sessions[0]?.score ?? 0) + feverBanked + feverExtra;
+
+  function tryFever(): void {
+    if (!feverEligible || feverOn || paused || ended) return;
+    if ((sessions[0]?.combo ?? 0) < FEVER_MIN_COMBO) return;
+    feverOn = true;
+    feverUntil = performance.now() + FEVER_MS;
+    wrap.classList.add('fever');
+  }
+
+  function endFever(forfeit: boolean): void {
+    if (!feverOn && feverExtra === 0) return;
+    if (forfeit) feverExtra = 0;
+    else {
+      feverBanked += feverExtra;
+      feverExtra = 0;
+    }
+    feverOn = false;
+    feverUntil = 0;
+    wrap.classList.remove('fever');
+  }
   let netOff: Array<() => void> = [];
 
   // ---- layout ----
@@ -110,6 +142,13 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
   const endMs = Math.min(song.durationMs + 500, lastNoteEnd + 3000);
 
   function onJudge(playerIdx: number, ev: JudgeEvent): void {
+    if (playerIdx === 0 && feverEligible) {
+      if (ev.type === 'hit' && feverOn) {
+        feverExtra += ev.baseScore * multiplierFor(ev.comboAfter); // doubles the hit
+      } else if (ev.comboAfter === 0 && ev.type !== 'hit' && ev.type !== 'holdComplete' && (feverOn || feverExtra > 0)) {
+        endFever(true); // streak broken — the double points are lost
+      }
+    }
     const pf = playfields[playerIdx];
     if (ev.type === 'hit') {
       pf.setJudgment(ev.judgment!);
@@ -152,13 +191,14 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
       };
     }
     return {
-      score: sess.score,
+      score: i === 0 ? displayScore() : sess.score,
       combo: sess.combo,
       multiplier: sess.multiplier(),
       accuracy: sess.accuracy(),
       health: sess.health,
       failed: sess.failed,
       name: players[i].name,
+      fever: i === 0 && feverOn,
     };
   }
 
@@ -223,6 +263,10 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
       if (ended) return;
       if (isReplay) return finish();
       paused ? resumeGame() : pauseGame();
+    }
+    if (e.code === 'Enter' || e.code === 'NumpadEnter') {
+      e.preventDefault();
+      tryFever();
     }
     if (params.practice && !paused && !ended) {
       const now = conductor.nowMs();
@@ -304,6 +348,8 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
     overlay.classList.add('hide');
     paused = false;
     ended = false;
+    endFever(true);
+    feverBanked = 0;
     recorded.length = 0;
     replayCursor = 0;
     buildSessions();
@@ -434,7 +480,7 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
     const rows = [
       {
         name: players[0].name + ' (you)',
-        score: sessions[0]?.score ?? 0,
+        score: displayScore(),
         accuracy: sessions[0]?.accuracy() ?? 1,
         combo: sessions[0]?.combo ?? 0,
         health: sessions[0]?.health ?? 100,
@@ -480,6 +526,9 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
     const nowJ = conductor.nowMs();
 
     if (!paused && !ended) {
+      // fever expiring naturally banks the earned double points
+      if (feverOn && performance.now() >= feverUntil) endFever(false);
+
       // replay event feed
       if (isReplay) {
         while (replayCursor < replay!.events.length && replay!.events[replayCursor].t <= nowJ) {
@@ -503,7 +552,7 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
         lastProgressSent = t;
         const sess = sessions[0];
         ctx.net.send('progress', {
-          score: sess.score,
+          score: displayScore(),
           accuracy: sess.accuracy(),
           combo: sess.combo,
           multiplier: sess.multiplier(),
@@ -568,9 +617,11 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
       return;
     }
 
+    endFever(false); // a streak carried to the end keeps its double points
+
     const results: PlayerResult[] = sessions.map((sess, i) => ({
       name: players[i].name,
-      score: sess.score,
+      score: i === 0 ? sess.score + feverBanked : sess.score,
       accuracy: sess.accuracy(),
       grade: sess.grade(),
       maxCombo: sess.maxCombo,
@@ -629,10 +680,10 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
 
     if (params.online && ctx.net.isConnected()) {
       const sess = sessions[0];
-      ctx.net.send('progress', { score: sess.score, accuracy: sess.accuracy(), combo: sess.combo, multiplier: sess.multiplier(), health: sess.health, done: true, events: recorded.slice(sentEventCursor) });
+      ctx.net.send('progress', { score: sess.score + feverBanked, accuracy: sess.accuracy(), combo: sess.combo, multiplier: sess.multiplier(), health: sess.health, done: true, events: recorded.slice(sentEventCursor) });
       sentEventCursor = recorded.length;
       ctx.net.send('finish', {
-        result: { score: sess.score, accuracy: sess.accuracy(), grade: sess.grade(), maxCombo: sess.maxCombo, failed: sess.failed },
+        result: { score: sess.score + feverBanked, accuracy: sess.accuracy(), grade: sess.grade(), maxCombo: sess.maxCombo, failed: sess.failed },
       });
     }
 

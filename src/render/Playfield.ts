@@ -5,6 +5,8 @@ import { LETTERS, letterColumn } from '../charts/chart';
 import { clamp, fitCanvas } from '../util';
 
 export interface HudState {
+  /** double-points fever is active — draw the intense treatment */
+  fever?: boolean;
   score: number;
   combo: number;
   multiplier: number;
@@ -374,6 +376,15 @@ export class Playfield {
       ctx.font = `600 10px ${font}`;
       ctx.fillStyle = ink(0.4);
       ctx.fillText('C O M B O', W / 2, H * 0.32 + 15);
+    }
+
+    // fever banner
+    if (hud.fever) {
+      const pulse = 0.65 + 0.35 * Math.sin(perfNow / 90);
+      ctx.textAlign = 'center';
+      ctx.font = `800 17px ${font}`;
+      ctx.fillStyle = `rgba(255, 176, 55, ${pulse})`;
+      ctx.fillText('FEVER ×2', W / 2, H * 0.32 + 36);
     }
 
     // judgment popup

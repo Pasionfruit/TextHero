@@ -482,6 +482,41 @@ input[type="range"] { accent-color: var(--accent); padding: 0; border: none; bac
 }
 .scrub-track:hover .scrub-handle { transform: translate(-50%, -50%) scale(1.2); }
 
+/* ---- fever: momentary double points ---- */
+.play-wrap.fever::before {
+  content: '';
+  position: absolute; inset: 0;
+  pointer-events: none; z-index: 4;
+  box-shadow: inset 0 0 150px rgba(255, 176, 55, 0.45);
+  animation: fever-pulse 0.45s ease-in-out infinite alternate;
+}
+@keyframes fever-pulse {
+  from { opacity: 0.5; }
+  to { opacity: 1; }
+}
+
+/* two-column form grid (Settings → Visuals) */
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; column-gap: 22px; }
+.grid2 .form-row > label { min-width: 120px; }
+
+/* ---- mobile ---- */
+@media (max-width: 800px) {
+  .page { margin: 10px auto; height: calc(100vh - 20px); padding: 16px 14px 24px; width: calc(100% - 16px); }
+  .page-title, .site-title { font-size: 24px; }
+  .logo { font-size: 40px; }
+  .select-head { grid-template-columns: 1fr; gap: 8px; }
+  .select-cols { grid-template-columns: 1fr; margin-top: 14px; }
+  .song-col { order: -1; }
+  .page.songselect { overflow-y: auto; }
+  .page.songselect .song-list { max-height: 42vh; flex: none; }
+  .song-detail { overflow: visible; }
+  .grid2 { grid-template-columns: 1fr; }
+  .results-row { flex-direction: column; }
+  .modal, .play-setup { min-width: 0; width: 92vw; }
+  .theme-toggle { top: 8px; right: 8px; width: 34px; height: 34px; }
+  .head-right { flex-wrap: wrap; }
+}
+
 /* ---- modal / toasts ---- */
 .modal-back {
   position: fixed; inset: 0; background: var(--overlay);

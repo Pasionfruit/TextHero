@@ -546,14 +546,13 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
           return;
         }
         const table = el('table', { class: 'table' },
-          el('tr', null, el('th', null, 'Song'), el('th', null, 'Artist'), el('th', null, 'By'), el('th', null, 'Date'), isAdmin && el('th', null, '')),
+          el('tr', null, el('th', null, 'Song'), el('th', null, 'Artist'), el('th', null, 'Date'), isAdmin && el('th', null, '')),
         );
         for (const r2 of recs) {
           table.append(
             el('tr', null,
               el('td', null, r2.title),
               el('td', null, r2.artist),
-              el('td', { class: 'muted' }, r2.player || '—'),
               el('td', { class: 'muted' }, new Date(r2.dateIso).toLocaleDateString()),
               isAdmin && el('td', null,
                 el('button', {

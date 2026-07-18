@@ -83,7 +83,17 @@ body {
 
 /* wavy lane-lines + scattered note-dots, generated at boot */
 #bg-decor { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
-:root[data-theme='light'] #bg-decor { opacity: 0.9; }
+/* darker, more saturated waves on the cream background */
+:root[data-theme='light'] #bg-decor { opacity: 1; filter: brightness(0.72) saturate(1.5); }
+
+/* fever: the backdrop waves travel like water (one 400px wavelength per loop) */
+body.fever-bg #bg-decor path {
+  animation: wave-travel 2.6s linear infinite;
+}
+body.fever-bg #bg-decor path:nth-child(odd) { animation-duration: 3.4s; }
+@keyframes wave-travel {
+  to { transform: translateX(-400px); }
+}
 #app, #toasts { position: relative; z-index: 1; }
 
 /* gamified scrollbar: amber gem-pill thumb on an invisible track */
@@ -360,7 +370,7 @@ input[type="range"] { accent-color: var(--accent); padding: 0; border: none; bac
 .pause-panel { display: flex; flex-direction: column; gap: 10px; min-width: 260px; text-align: center; }
 /* display font for the pause dialog and big container action buttons */
 .pause-panel h2 { font-family: var(--font-display); font-size: 26px; font-weight: 400; letter-spacing: 2px; }
-.pause-panel .btn, .btn.big { font-family: var(--font-display); font-weight: 400; letter-spacing: 1.5px; }
+.pause-panel .btn, .btn.big, .display-font { font-family: var(--font-display); font-weight: 400; letter-spacing: 1.5px; }
 .pause-settings { border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 8px 0; text-align: left; }
 .pause-settings .form-row > label { min-width: 60px; }
 .play-gear {

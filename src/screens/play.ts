@@ -57,9 +57,11 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
   // The bonus rides OUTSIDE the deterministic engine: it accrues while fever
   // is active, is forfeited if the streak breaks, and banks when fever ends.
   const FEVER_MIN_COMBO = 25;
-  const FEVER_MS = 6000;
+  const FEVER_MS = 10000;
+  const FEVER_COOLDOWN_MS = 45000;
   let feverOn = false;
   let feverUntil = 0;
+  let feverCooldownUntil = 0;
   let feverExtra = 0; // at-risk bonus during the active fever
   let feverBanked = 0; // bonus kept from completed fevers
   const feverEligible = players.length === 1 && !band && !isReplay;
@@ -67,10 +69,13 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
 
   function tryFever(): void {
     if (!feverEligible || feverOn || paused || ended) return;
+    if (performance.now() < feverCooldownUntil) return; // once every 45s
     if ((sessions[0]?.combo ?? 0) < FEVER_MIN_COMBO) return;
     feverOn = true;
     feverUntil = performance.now() + FEVER_MS;
+    feverCooldownUntil = performance.now() + FEVER_COOLDOWN_MS;
     wrap.classList.add('fever');
+    document.body.classList.add('fever-bg'); // set the backdrop waves in motion
   }
 
   function endFever(forfeit: boolean): void {
@@ -83,6 +88,7 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
     feverOn = false;
     feverUntil = 0;
     wrap.classList.remove('fever');
+    document.body.classList.remove('fever-bg');
   }
   let netOff: Array<() => void> = [];
 
@@ -199,6 +205,12 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
       failed: sess.failed,
       name: players[i].name,
       fever: i === 0 && feverOn,
+      feverReady:
+        i === 0 && feverEligible && !feverOn && sess.combo >= FEVER_MIN_COMBO && performance.now() >= feverCooldownUntil,
+      feverCooldownSec:
+        i === 0 && feverEligible && !feverOn && sess.combo >= FEVER_MIN_COMBO && performance.now() < feverCooldownUntil
+          ? Math.ceil((feverCooldownUntil - performance.now()) / 1000)
+          : undefined,
     };
   }
 
@@ -264,9 +276,15 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
       if (isReplay) return finish();
       paused ? resumeGame() : pauseGame();
     }
-    if (e.code === 'Enter' || e.code === 'NumpadEnter') {
-      e.preventDefault();
-      tryFever();
+    if (e.code === 'Semicolon') {
+      // fever key — unless ';' is actually one of this chart's lanes
+      const semiIsLane =
+        (chart.mode === 'keyboard' && chart.keys.includes(';')) ||
+        (chart.mode === 'five' && players.some((p, i) => (p.codes ?? s.bindings[i] ?? s.bindings[0])?.includes('Semicolon')));
+      if (!semiIsLane) {
+        e.preventDefault();
+        tryFever();
+      }
     }
     if (params.practice && !paused && !ended) {
       const now = conductor.nowMs();
@@ -284,9 +302,11 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
   };
   window.addEventListener('keydown', onKey);
 
+  let pausedAtWall = 0;
   function pauseGame(byName?: string, fromNet = false): void {
     if (ended || paused) return;
     paused = true;
+    pausedAtWall = performance.now(); // fever timers freeze while paused
     void conductor.pause();
     if (!fromNet && params.online && ctx.net.isConnected()) ctx.net.send('pause', { paused: true });
     overlay.classList.remove('hide');
@@ -324,6 +344,13 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
     if (!fromNet && params.online && ctx.net.isConnected()) ctx.net.send('pause', { paused: false });
     const finish = (): void => {
       if (destroyed) return;
+      // shift the fever clock forward by however long we sat paused
+      if (pausedAtWall) {
+        const frozen = performance.now() - pausedAtWall;
+        if (feverCooldownUntil) feverCooldownUntil += frozen;
+        if (feverOn) feverUntil += frozen;
+        pausedAtWall = 0;
+      }
       overlay.classList.add('hide');
       void conductor.resume().then(() => {
         paused = false;
@@ -350,6 +377,7 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
     ended = false;
     endFever(true);
     feverBanked = 0;
+    feverCooldownUntil = 0;
     recorded.length = 0;
     replayCursor = 0;
     buildSessions();
@@ -727,6 +755,7 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
   return {
     destroy() {
       destroyed = true;
+      document.body.classList.remove('fever-bg');
       cancelAnimationFrame(rafId);
       input.detach();
       window.removeEventListener('keydown', onKey);

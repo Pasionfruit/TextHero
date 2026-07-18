@@ -36,8 +36,10 @@ function buildBackdrop(): void {
   LANE_COLORS.forEach((color, i) => {
     const y = 90 + (i * (H - 180)) / 4 + (Math.random() * 60 - 30);
     const amp = (30 + Math.random() * 30) * (Math.random() < 0.5 ? 1 : -1);
+    // extend well past the right edge so the fever wave-travel loop (-400px)
+    // never exposes a gap
     let d = `M -100 ${y.toFixed(0)} q 100 ${-amp.toFixed(0)} 200 0`;
-    for (let x = 100; x < W + 200; x += 200) d += ' t 200 0';
+    for (let x = 100; x < W + 700; x += 200) d += ' t 200 0';
     inner += `<path d="${d}" fill="none" stroke="${color}" stroke-width="2.5" opacity="0.12"/>`;
   });
   for (let i = 0; i < 28; i++) {

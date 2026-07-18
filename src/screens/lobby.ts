@@ -251,7 +251,7 @@ export function lobbyScreen(root: HTMLElement, ctx: AppCtx, _params: any): Scree
     page.append(songBox);
 
     const btns = el('div', { class: 'btn-row end' });
-    btns.append(el('button', { class: 'btn danger', onclick: () => { ctx.net.send('leave'); ctx.net.lobby = null; ctx.net.songPayload = null; render(); } }, 'Leave lobby'));
+    btns.append(el('button', { class: 'btn danger display-font', onclick: () => { ctx.net.send('leave'); ctx.net.lobby = null; ctx.net.songPayload = null; render(); } }, 'Leave lobby'));
     if (isHost) {
       btns.append(el('button', { class: 'btn primary big', onclick: () => ctx.net.send('start') }, 'Start match'));
     } else {

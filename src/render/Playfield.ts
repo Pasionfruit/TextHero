@@ -7,6 +7,10 @@ import { clamp, fitCanvas } from '../util';
 export interface HudState {
   /** double-points fever is active — draw the intense treatment */
   fever?: boolean;
+  /** streak is long enough to trigger fever — blink the prompt */
+  feverReady?: boolean;
+  /** streak is long enough but fever is cooling down — show remaining seconds */
+  feverCooldownSec?: number;
   score: number;
   combo: number;
   multiplier: number;
@@ -332,12 +336,12 @@ export class Playfield {
     }
 
     // ---- HUD: score / stats / multiplier in a card top-right, combo center ----
-    const hudW = 168;
-    const hudH = 58;
+    const hudW = 210;
+    const hudH = 76;
     const hudX = W - hudW - 12;
     const hudY = 10;
     ctx.beginPath();
-    ctx.roundRect(hudX, hudY, hudW, hudH, 10);
+    ctx.roundRect(hudX, hudY, hudW, hudH, 12);
     ctx.fillStyle = hc ? 'rgba(0,0,0,0.85)' : light ? 'rgba(255,253,246,0.85)' : 'rgba(19,21,27,0.85)';
     ctx.fill();
     ctx.strokeStyle = ink(0.15);
@@ -345,22 +349,31 @@ export class Playfield {
     ctx.stroke();
     ctx.textAlign = 'right';
     ctx.fillStyle = hc ? '#fff' : ink(0.92);
-    ctx.font = `700 21px ${font}`;
-    ctx.fillText(String(hud.score).padStart(7, '0'), hudX + hudW - 12, hudY + 26);
-    ctx.font = `12px ${font}`;
-    ctx.fillStyle = hc ? '#fff' : ink(0.6);
-    ctx.fillText(`${(hud.accuracy * 100).toFixed(2)}%  ·  ${hud.multiplier}x`, hudX + hudW - 12, hudY + 45);
+    ctx.font = `700 30px ${font}`;
+    ctx.fillText(String(hud.score).padStart(7, '0'), hudX + hudW - 14, hudY + 36);
+    ctx.font = `600 15px ${font}`;
+    ctx.fillStyle = hc ? '#fff' : ink(0.65);
+    ctx.fillText(`${(hud.accuracy * 100).toFixed(2)}%  ·  ${hud.multiplier}x`, hudX + hudW - 14, hudY + 60);
     ctx.textAlign = 'left';
+    ctx.font = `12px ${font}`;
     ctx.fillText(hud.name, 12, H - 10);
 
-    // health: thick bar on the right edge
-    const hbH = H * 0.34;
+    // health: big rounded bar on the right edge
+    const hbW = 16;
+    const hbH = H * 0.56;
+    const hbX = W - hbW - 10;
     const hbY = (H - hbH) / 2;
-    ctx.fillStyle = ink(light ? 0.14 : 0.1);
-    ctx.fillRect(W - 17, hbY, 9, hbH);
+    ctx.beginPath();
+    ctx.roundRect(hbX, hbY, hbW, hbH, hbW / 2);
+    ctx.fillStyle = ink(light ? 0.15 : 0.12);
+    ctx.fill();
     const hFrac = clamp(hud.health / 100, 0, 1);
-    ctx.fillStyle = hud.health > 50 ? '#43d675' : hud.health > 25 ? '#f5d90a' : '#e5484d';
-    ctx.fillRect(W - 17, hbY + hbH * (1 - hFrac), 9, hbH * hFrac);
+    if (hFrac > 0.02) {
+      ctx.beginPath();
+      ctx.roundRect(hbX + 2, hbY + 2 + (hbH - 4) * (1 - hFrac), hbW - 4, (hbH - 4) * hFrac, (hbW - 4) / 2);
+      ctx.fillStyle = hud.health > 50 ? '#43d675' : hud.health > 25 ? '#f5d90a' : '#e5484d';
+      ctx.fill();
+    }
 
     // combo
     if (hud.combo !== this.lastCombo) {
@@ -378,13 +391,22 @@ export class Playfield {
       ctx.fillText('C O M B O', W / 2, H * 0.32 + 15);
     }
 
-    // fever banner
+    // fever status, anchored under the score card (top-right)
+    const feverY = hudY + hudH + 24;
+    ctx.textAlign = 'right';
     if (hud.fever) {
       const pulse = 0.65 + 0.35 * Math.sin(perfNow / 90);
-      ctx.textAlign = 'center';
-      ctx.font = `800 17px ${font}`;
+      ctx.font = `800 19px ${font}`;
       ctx.fillStyle = `rgba(255, 176, 55, ${pulse})`;
-      ctx.fillText('FEVER ×2', W / 2, H * 0.32 + 36);
+      ctx.fillText('FEVER ×2', hudX + hudW - 14, feverY);
+    } else if (hud.feverReady && Math.sin(perfNow / 140) > -0.2) {
+      ctx.font = `800 15px ${font}`;
+      ctx.fillStyle = '#ffb037';
+      ctx.fillText('FEVER READY — PRESS ;', hudX + hudW - 14, feverY);
+    } else if (hud.feverCooldownSec) {
+      ctx.font = `600 13px ${font}`;
+      ctx.fillStyle = ink(0.45);
+      ctx.fillText(`FEVER IN ${hud.feverCooldownSec}s`, hudX + hudW - 14, feverY);
     }
 
     // judgment popup
@@ -407,7 +429,7 @@ export class Playfield {
       ctx.fillStyle = 'rgba(150,20,30,0.32)';
       ctx.fillRect(0, 0, W, H);
       ctx.textAlign = 'center';
-      ctx.font = `800 38px ${font}`;
+      ctx.font = `42px 'Kinder Child Kawaii Bubble', ${font}`;
       ctx.fillStyle = light ? '#c62828' : '#ff6b6b';
       ctx.fillText('FAILED', W / 2, H / 2);
     }

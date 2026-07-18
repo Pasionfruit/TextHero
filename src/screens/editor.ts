@@ -3,7 +3,7 @@ import type { ChartData, Difficulty, GameMode, NoteData, SongData } from '../typ
 import { DIFFICULTIES } from '../types';
 import { beatToMs, laneCountOf, LETTERS, makeEmptyChart, modeLabel, msToBeat } from '../charts/chart';
 import { analyzeSong, generateNotes, type SongAnalysis } from '../charts/autochart';
-import { clamp, codeLabel, download, el, fitCanvas, fmtTime, isMobile, toast } from '../util';
+import { clamp, codeLabel, download, el, fitCanvas, fmtTime, isMobile, toast, uid } from '../util';
 import { Conductor } from '../engine/Conductor';
 import { isLightTheme, laneColor } from '../store/settings';
 import { icon } from '../ui/icons';
@@ -186,6 +186,48 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
       songSel.append(el('option', { value: sd.id, selected: sd.id === song.id }, `${sd.title} — ${sd.artist}`));
     }
 
+    // import a chart from an exported .texthero.json (or a bare chart object)
+    const importIn = el('input', { type: 'file', accept: '.json,application/json', style: { display: 'none' } });
+    importIn.onchange = async () => {
+      const f = importIn.files?.[0];
+      importIn.value = '';
+      if (!f || !song) return;
+      try {
+        const data = JSON.parse(await f.text());
+        const c = data?.chart ?? data;
+        if (!c || !Array.isArray(c.notes)) throw new Error('no chart found in the file');
+        const mode: GameMode = (['five', 'keyboard', 'letters'] as GameMode[]).includes(c.mode) ? c.mode : 'five';
+        const difficulty: Difficulty = DIFFICULTIES.includes(c.difficulty) ? c.difficulty : 'medium';
+        const importedNotes: NoteData[] = (c.notes as any[])
+          .filter((n) => typeof n?.beat === 'number' && typeof n?.lane === 'number')
+          .map((n) => ({
+            beat: Math.max(0, n.beat),
+            lane: Math.max(0, Math.round(n.lane)),
+            durBeats: Math.max(0, Number(n.durBeats) || 0),
+          }));
+        if (!importedNotes.length) throw new Error('the chart has no notes');
+        commitActive();
+        const imported: ChartData = {
+          id: uid(),
+          songId: song.id,
+          mode,
+          difficulty,
+          keys: Array.isArray(c.keys) ? c.keys.slice(0, 64).map(String) : [],
+          notes: importedNotes.sort((a, b) => a.beat - b.beat || a.lane - b.lane),
+        };
+        charts.push(imported);
+        activeIdx = charts.length - 1;
+        notes = imported.notes;
+        selection.clear();
+        undoStack.length = redoStack.length = 0;
+        dirty = true;
+        renderToolbars();
+        toast(`Imported ${imported.notes.length} notes as ${modeLabel(mode)} · ${difficulty} — remember to Save`);
+      } catch (err) {
+        toast(`Import failed: ${(err as Error).message}`);
+      }
+    };
+
     // heading: ‹ | song picker | title, artist, BPM, offset … save/export right
     toolbar.append(
       el('button', { class: 'btn sm', title: 'Back to menu', onclick: () => exit() }, icon('chevronleft', 16)),
@@ -200,7 +242,9 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
         title: isAdmin ? 'Save and publish as the version all players play' : 'Save locally',
         onclick: () => void save(),
       }, icon(isAdmin ? 'upload' : 'save'), isAdmin ? 'Save & Publish' : 'Save'),
+      el('button', { class: 'btn sm', title: 'Import a chart from an exported JSON file', onclick: () => importIn.click() }, 'Import'),
       el('button', { class: 'btn sm', onclick: () => exportChart() }, 'Export'),
+      importIn,
     );
 
     // side panel: transport in one row, tap/snap below, zoom pinned bottom-right

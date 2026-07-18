@@ -358,10 +358,10 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
       });
     };
     if (!isReplay && s.uiSounds) {
-      // hold the game frozen and count 3·2·1 in step with the countdown sound
+      // hold the game frozen and count 4·3·2·1 in step with the countdown sound
       resuming = true;
       overlay.innerHTML = '';
-      const digitEl = el('h2', { class: 'resume-count' }, '3');
+      const digitEl = el('h2', { class: 'resume-count' }, '4');
       overlay.append(el('div', { class: 'panel pause-panel' }, digitEl));
       const setDigit = (d: string): void => {
         digitEl.textContent = d;
@@ -370,12 +370,11 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
           { duration: 260, easing: 'ease-out' },
         );
       };
-      setDigit('3');
+      setDigit('4');
       void ctx.audio.playUiSound(COUNTDOWN_SFX, 0.7);
       void ctx.audio.uiSoundDuration(COUNTDOWN_SFX).then((sec) => {
-        const total = Math.max(600, sec * 1000 - 80);
-        setTimeout(() => setDigit('2'), total / 3);
-        setTimeout(() => setDigit('1'), (total / 3) * 2);
+        const total = Math.max(800, sec * 1000 - 80);
+        for (let i = 1; i < 4; i++) setTimeout(() => setDigit(String(4 - i)), (total / 4) * i);
         setTimeout(finish, total);
       });
     } else {

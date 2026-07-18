@@ -4,6 +4,12 @@ import { isLightTheme, judgeColor, laneColor } from '../store/settings';
 import { LETTERS, letterColumn } from '../charts/chart';
 import { clamp, fitCanvas } from '../util';
 
+/** Arrow directions per column for the arrows skin (4- and 5-lane layouts). */
+const ARROW_ANGLES: Record<number, number[]> = {
+  4: [Math.PI, Math.PI / 2, -Math.PI / 2, 0],
+  5: [Math.PI, Math.PI / 2, NaN, -Math.PI / 2, 0],
+};
+
 export interface HudState {
   /** double-points fever is active — draw the intense treatment */
   fever?: boolean;
@@ -54,6 +60,37 @@ export class Playfield {
   private lastCombo = 0;
   private lastCountDigit = 0;
   private countPulseAt = 0;
+
+  /** Trace the receptor outline so it matches the active note skin's shape. */
+  private traceReceptor(ctx: CanvasRenderingContext2D, skin: string, x: number, y: number, r: number, colW: number, col: number): void {
+    ctx.beginPath();
+    if (skin === 'bars') {
+      const w = colW - 6;
+      const h = 16;
+      ctx.roundRect(x - w / 2, y - h / 2, w, h, h / 2);
+    } else if (skin === 'arrows' && this.cols <= 5) {
+      const a = (ARROW_ANGLES[this.cols] ?? [])[col];
+      if (a != null && !Number.isNaN(a)) {
+        const cos = Math.cos(a);
+        const sin = Math.sin(a);
+        const pt = (px: number, py: number): [number, number] => [x + px * cos - py * sin, y + px * sin + py * cos];
+        const [x1, y1] = pt(r, 0);
+        const [x2, y2] = pt(-r * 0.6, -r * 0.7);
+        const [x3, y3] = pt(-r * 0.2, 0);
+        const [x4, y4] = pt(-r * 0.6, r * 0.7);
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.lineTo(x3, y3);
+        ctx.lineTo(x4, y4);
+        ctx.closePath();
+      } else {
+        ctx.arc(x, y, r * 0.7, 0, Math.PI * 2);
+      }
+    } else {
+      // gems / circles
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+    }
+  }
   private particles: Particle[] = [];
   private downLanes = new Set<number>();
   private colGlow: number[];
@@ -222,15 +259,15 @@ export class Playfield {
     ctx.lineTo(edge(1, 1), lineY);
     ctx.stroke();
 
-    // receptors (rings)
+    // receptors — shaped to match the active note skin
+    const activeSkin = this.opts.mode === 'letters' ? 'gems' : this.s.noteSkin;
     const rBase = Math.min(colW * 0.42, 30);
     for (let c = 0; c < cols; c++) {
       const x = g.colCenter(c);
       const color = laneColor(this.s, c, cols);
       const pressed = this.colPressed(c);
       const glow = pressed ? 1 : clamp(1 - (perfNow - this.colGlow[c]) / 180, 0, 1);
-      ctx.beginPath();
-      ctx.arc(x, lineY, rBase, 0, Math.PI * 2);
+      this.traceReceptor(ctx, activeSkin, x, lineY, rBase, colW, c);
       ctx.strokeStyle = color;
       ctx.lineWidth = hc ? 3.5 : 2.5;
       ctx.globalAlpha = 0.5 + glow * 0.5;
@@ -509,11 +546,7 @@ export class Playfield {
         ctx.stroke();
       }
     } else if (skin === 'arrows' && this.cols <= 5) {
-      const angles: Record<number, number[]> = {
-        4: [Math.PI, Math.PI / 2, -Math.PI / 2, 0],
-        5: [Math.PI, Math.PI / 2, NaN, -Math.PI / 2, 0],
-      };
-      const a = (angles[this.cols] ?? [])[col];
+      const a = (ARROW_ANGLES[this.cols] ?? [])[col];
       ctx.save();
       ctx.translate(x, y);
       ctx.fillStyle = color;

@@ -76,7 +76,7 @@ export const DEFAULT_SETTINGS: Settings = {
   noteScale: 1,
   laneSpacingPx: 4,
   fontFamily: 'system-ui',
-  hitSounds: true,
+  hitSounds: false,
   volume: 0.9,
   menuMusicVolume: 0.1,
   uiSounds: true,

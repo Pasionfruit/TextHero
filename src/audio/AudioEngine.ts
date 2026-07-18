@@ -185,10 +185,12 @@ export class AudioEngine {
     // start around the 35% mark — usually past the intro, into the hook
     const from = Math.min(buf.duration * 0.35, Math.max(0, buf.duration - durSec));
     const dur = Math.min(durSec, buf.duration - from);
+    // previews sit well below full game volume so browsing stays comfortable
+    const PREVIEW_GAIN = 0.4;
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.85, t + 0.3);
-    g.gain.setValueAtTime(0.85, Math.max(t + 0.3, t + dur - 1.2));
+    g.gain.exponentialRampToValueAtTime(PREVIEW_GAIN, t + 0.3);
+    g.gain.setValueAtTime(PREVIEW_GAIN, Math.max(t + 0.3, t + dur - 1.2));
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     const src = this.ctx.createBufferSource();
     src.buffer = buf;

@@ -77,7 +77,7 @@ export const DEFAULT_SETTINGS: Settings = {
   laneSpacingPx: 4,
   fontFamily: 'system-ui',
   hitSounds: false,
-  volume: 0.9,
+  volume: 0.5,
   menuMusicVolume: 0.1,
   uiSounds: true,
   bgDim: 0.5,

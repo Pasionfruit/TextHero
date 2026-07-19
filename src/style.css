@@ -377,7 +377,8 @@ input[type="range"] { accent-color: var(--accent); padding: 0; border: none; bac
 .pause-panel { display: flex; flex-direction: column; gap: 10px; min-width: 260px; text-align: center; }
 /* display font for the pause dialog and big container action buttons */
 .pause-panel h2 { font-family: var(--font-display); font-size: 26px; font-weight: 400; letter-spacing: 2px; }
-.pause-panel h2.resume-count { font-size: 72px; color: var(--accent); line-height: 1.1; }
+.resume-count { font-family: var(--font-display); font-size: 84px; color: var(--accent); line-height: 1.1; text-shadow: 0 2px 18px rgba(0, 0, 0, 0.4); }
+.play-overlay.clear { background: transparent; }
 .pause-panel .btn, .btn.big, .display-font { font-family: var(--font-display); font-weight: 400; letter-spacing: 1.5px; }
 .pause-settings { border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 8px 0; text-align: left; }
 .pause-settings .form-row > label { min-width: 60px; }

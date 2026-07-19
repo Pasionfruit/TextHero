@@ -18,7 +18,7 @@ export class AudioEngine {
   constructor() {
     this.ctx = new AudioContext({ latencyHint: 'interactive' });
     this.master = this.ctx.createGain();
-    this.master.gain.value = 0.9;
+    this.master.gain.value = 0.5;
     this.master.connect(this.ctx.destination);
   }
 

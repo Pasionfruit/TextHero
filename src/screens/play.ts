@@ -11,6 +11,7 @@ import { applyTheme } from '../store/settings';
 import { icon } from '../ui/icons';
 import { clamp, codeLabel, el, fmtTime, isMobile, toast, uid } from '../util';
 import { volumeRow } from './settings';
+import { checkbox } from './songselect';
 
 interface BandState {
   health: number;
@@ -314,10 +315,21 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
     overlay.append(
       el('div', { class: 'panel pause-panel' },
         el('h2', null, byName ? `Paused by ${byName}` : 'Paused'),
+        el('div', { class: 'muted sm' }, `${song.title} — ${song.artist} · ${chart.difficulty.toUpperCase()}`),
         params.online && el('div', { class: 'muted sm' }, 'The match is paused for everyone.'),
         el('button', { class: 'btn primary', onclick: () => resumeGame() }, 'Resume'),
         !params.online && el('button', { class: 'btn', onclick: () => restart() }, 'Restart'),
-        el('div', { class: 'pause-settings' }, volumeRow(ctx), pauseThemeRow()),
+        el('div', { class: 'pause-settings' },
+          volumeRow(ctx),
+          el('div', { class: 'form-row' },
+            el('label', null, 'Hit sounds'),
+            checkbox(s.hitSounds, (v) => {
+              s.hitSounds = v;
+              ctx.saveSettings();
+            }),
+          ),
+          pauseThemeRow(),
+        ),
         el('button', { class: 'btn danger', onclick: () => quit() }, 'Quit'),
       ),
     );
@@ -352,6 +364,7 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
         pausedAtWall = 0;
       }
       overlay.classList.add('hide');
+      overlay.classList.remove('clear');
       void conductor.resume().then(() => {
         paused = false;
         resuming = false;
@@ -359,10 +372,12 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
     };
     if (!isReplay && s.uiSounds) {
       // hold the game frozen and count 4·3·2·1 in step with the countdown sound
+      // (bare digits over the field — no panel, no dimmed backdrop)
       resuming = true;
       overlay.innerHTML = '';
+      overlay.classList.add('clear');
       const digitEl = el('h2', { class: 'resume-count' }, '4');
-      overlay.append(el('div', { class: 'panel pause-panel' }, digitEl));
+      overlay.append(digitEl);
       const setDigit = (d: string): void => {
         digitEl.textContent = d;
         digitEl.animate(

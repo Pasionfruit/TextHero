@@ -60,7 +60,7 @@ function makeSqliteStore() {
      FROM scores WHERE chart_id = ?
      ORDER BY score DESC, accuracy DESC, max_combo DESC, date_iso ASC LIMIT ?`,
   );
-  const stmtGet = db.prepare('SELECT score, accuracy, max_combo FROM scores WHERE chart_id = ? AND player = ?');
+  const stmtGet = db.prepare('SELECT id, player, score, accuracy, max_combo FROM scores WHERE chart_id = ? AND player = ? COLLATE NOCASE');
   const stmtUpsert = db.prepare(
     `INSERT INTO scores (chart_id, song_id, title, artist, mode, difficulty, player, score, accuracy, grade, max_combo, no_fail, failed, date_iso)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -261,7 +261,7 @@ async function makePgStore(url) {
       return r.rows;
     },
     async getBest(chartId, player) {
-      const r = await pool.query('SELECT score, accuracy, max_combo FROM scores WHERE chart_id = $1 AND player = $2', [chartId, player]);
+      const r = await pool.query('SELECT id, player, score, accuracy, max_combo FROM scores WHERE chart_id = $1 AND LOWER(player) = LOWER($2)', [chartId, player]);
       return r.rows[0];
     },
     async upsert(rec) {
@@ -464,7 +464,8 @@ async function handleApi(req, res, url) {
       return sendJson(res, 400, { error: 'that player name is reserved for the admin' });
     }
 
-    // keep each player's best run per chart
+    // keep each player's best run per chart — name matching is case-insensitive,
+    // so "Abe" and "abe" share one row and only the higher score survives
     const existing = await store.getBest(rec.chartId, rec.player);
     const improved =
       !existing ||
@@ -472,7 +473,11 @@ async function handleApi(req, res, url) {
       (rec.score === existing.score &&
         (rec.accuracy > existing.accuracy ||
           (rec.accuracy === existing.accuracy && rec.maxCombo > existing.max_combo)));
-    if (improved) await store.upsert(rec);
+    if (improved) {
+      // a differently-cased old row won't hit the upsert's unique key — drop it
+      if (existing && existing.player !== rec.player) await store.remove(existing.id);
+      await store.upsert(rec);
+    }
     const best = improved ? rec : { score: Number(existing.score), accuracy: Number(existing.accuracy), maxCombo: Number(existing.max_combo) };
     return sendJson(res, 200, { ok: true, improved, ...(await store.rank(rec.chartId, best.score, best.accuracy, best.maxCombo)) });
   }

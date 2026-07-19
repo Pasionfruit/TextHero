@@ -49,6 +49,7 @@ export async function syncPublishedCharts(db: DB, settings: Settings, songId: st
         difficulty: pc.difficulty,
         keys: pc.keys ?? [],
         notes: pc.notes ?? [],
+        spam: pc.spam ?? [],
         updatedIso: pc.updatedIso,
         published: true,
         publishedIso: pc.updatedIso,

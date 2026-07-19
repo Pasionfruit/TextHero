@@ -65,7 +65,19 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
       renderList();
     },
   }, icon('x'));
-  const genreWrap = el('div', { class: 'genre-wrap' }, genreBtn, genreClear, genreMenu);
+  // sort toggle: title A–Z → shortest first → longest first
+  let sortMode: 'title' | 'durAsc' | 'durDesc' = 'title';
+  const sortLabel = (): string => (sortMode === 'title' ? 'A–Z' : sortMode === 'durAsc' ? 'Time ↑' : 'Time ↓');
+  const sortBtn = el('button', {
+    class: 'btn sm sort-btn',
+    title: 'Sort songs: title / shortest first / longest first',
+    onclick: () => {
+      sortMode = sortMode === 'title' ? 'durAsc' : sortMode === 'durAsc' ? 'durDesc' : 'title';
+      sortBtn.textContent = sortLabel();
+      renderList();
+    },
+  }, sortLabel()) as HTMLButtonElement;
+  const genreWrap = el('div', { class: 'genre-wrap' }, genreBtn, genreClear, sortBtn, genreMenu);
   const onDocClick = (e: MouseEvent): void => {
     if (!genreWrap.contains(e.target as Node)) genreMenu.classList.add('hide');
   };
@@ -102,10 +114,15 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
     genreBtn.textContent = genreLabel();
   }
 
-  const visibleSongs = (): SongData[] =>
-    songs.filter((x) =>
+  const visibleSongs = (): SongData[] => {
+    const list = songs.filter((x) =>
       (!filterGenres.size || (x.genre != null && filterGenres.has(x.genre))) &&
       (!filterText || `${x.title} ${x.artist}`.toLowerCase().includes(filterText)));
+    // base list is already title-sorted; duration sorts tie-break by title
+    if (sortMode === 'durAsc') list.sort((a, b) => a.durationMs - b.durationMs || a.title.localeCompare(b.title));
+    else if (sortMode === 'durDesc') list.sort((a, b) => b.durationMs - a.durationMs || a.title.localeCompare(b.title));
+    return list;
+  };
 
   const s = ctx.settings;
 

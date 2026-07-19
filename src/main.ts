@@ -100,7 +100,10 @@ async function boot(): Promise<void> {
     if (Object.keys(patch).length) await db.put('songs', { ...existingDemo, ...patch });
   }
   for (const chart of buildDemoCharts()) {
-    if (!(await db.get('charts', chart.id))) await db.put('charts', chart);
+    const existing = await db.get('charts', chart.id);
+    if (!existing) await db.put('charts', chart);
+    // migrate untouched demo charts to include the spam section
+    else if (!existing.spam && !existing.updatedIso) await db.put('charts', chart);
   }
 
   // import bundled mp3s (src/audio) in the background; songs appear in the

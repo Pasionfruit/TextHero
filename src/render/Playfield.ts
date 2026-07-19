@@ -194,7 +194,13 @@ export class Playfield {
     return a;
   }
 
-  draw(now: number, hud: HudState, countdownSec: number | null, notes: RuntimeNote[]): void {
+  draw(
+    now: number,
+    hud: HudState,
+    countdownSec: number | null,
+    notes: RuntimeNote[],
+    spamZones?: Array<{ startMs: number; endMs: number }>,
+  ): void {
     const ctx = fitCanvas(this.canvas);
     const g = this.geometry();
     const { W, H, cols, colW, lineY } = g;
@@ -249,6 +255,48 @@ export class Playfield {
       ctx.moveTo(xb, lineY);
       ctx.lineTo(g.centerX + (xb - g.centerX) * HORIZON_W, g.horizonY);
       ctx.stroke();
+    }
+
+    // spam zones: a glowing band scrolling down the highway; while inside one,
+    // a pulsing banner invites the mash
+    let inSpamZone = false;
+    if (spamZones?.length) {
+      for (const z of spamZones) {
+        if (now >= z.startMs && now <= z.endMs) inSpamZone = true;
+        const head = this.project(g, z.startMs, now, 0);
+        const tail = this.project(g, z.endMs, now, 0);
+        if (tail.frac > 1.02 && head.frac > 1.02) continue; // fully beyond horizon
+        if (head.frac < 0 && tail.frac < 0 && !inSpamZone) continue; // fully passed
+        const clampY = (y: number): number =>
+          clamp(y, Math.min(g.horizonY, lineY), Math.max(g.horizonY, lineY));
+        const sOf = (p: { frac: number; scale: number }): number => (p.frac <= 0 ? 1 : p.scale);
+        const y1 = clampY(head.y);
+        const y2 = clampY(tail.y);
+        const s1 = sOf(head);
+        const s2 = sOf(tail);
+        ctx.beginPath();
+        ctx.moveTo(edge(-1, s1), y1);
+        ctx.lineTo(edge(1, s1), y1);
+        ctx.lineTo(edge(1, s2), y2);
+        ctx.lineTo(edge(-1, s2), y2);
+        ctx.closePath();
+        const zonePulse = inSpamZone ? 0.1 + 0.08 * Math.sin(perfNow / 110) : 0;
+        ctx.fillStyle = `rgba(255, 176, 55, ${0.1 + zonePulse})`;
+        ctx.fill();
+        if (Math.abs(y1 - y2) > 34) {
+          ctx.textAlign = 'center';
+          ctx.font = `16px 'Kinder Child Kawaii Bubble', ${font}`;
+          ctx.fillStyle = 'rgba(255, 176, 55, 0.75)';
+          ctx.fillText('SPAM ZONE', g.centerX, (y1 + y2) / 2);
+        }
+      }
+    }
+    if (inSpamZone) {
+      const pulse = 0.6 + 0.4 * Math.sin(perfNow / 80);
+      ctx.textAlign = 'center';
+      ctx.font = `26px 'Kinder Child Kawaii Bubble', ${font}`;
+      ctx.fillStyle = `rgba(255, 176, 55, ${pulse})`;
+      ctx.fillText('SPAM THE KEYS!', W / 2, H * 0.22);
     }
 
     // judgment line

@@ -95,6 +95,20 @@ export class AudioEngine {
   }
 
   private uiCtx: AudioContext | null = null;
+  private activeUiSources = new Set<AudioBufferSourceNode>();
+
+  /** Cut off any in-flight UI sounds (e.g. the countdown when the player quits). */
+  stopUiSounds(): void {
+    for (const src of this.activeUiSources) {
+      try {
+        src.stop();
+      } catch {
+        /* already stopped */
+      }
+      src.disconnect();
+    }
+    this.activeUiSources.clear();
+  }
 
   /** One-shot UI sound (hover, click, countdown). Silent until the first user
    *  gesture. While gameplay is paused the main context is suspended, so the
@@ -108,6 +122,8 @@ export class AudioEngine {
         const g = this.ctx.createGain();
         g.gain.value = volume;
         src.connect(g).connect(this.master);
+        this.activeUiSources.add(src);
+        src.onended = () => this.activeUiSources.delete(src);
         src.start();
         return;
       }
@@ -119,6 +135,8 @@ export class AudioEngine {
       const g = this.uiCtx.createGain();
       g.gain.value = volume * this.master.gain.value;
       src.connect(g).connect(this.uiCtx.destination);
+      this.activeUiSources.add(src);
+      src.onended = () => this.activeUiSources.delete(src);
       src.start();
     } catch {
       /* decorative — never block on it */

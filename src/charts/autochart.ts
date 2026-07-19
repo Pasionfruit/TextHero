@@ -1,5 +1,5 @@
 import type { ChartData, Difficulty, GameMode, NoteData, SongData } from '../types';
-import { LETTERS, letterColumn, msToBeat } from './chart';
+import { applySpamSection, LETTERS, letterColumn, msToBeat } from './chart';
 import { clamp, mulberry32, uid } from '../util';
 
 /**
@@ -375,16 +375,22 @@ export function generateNotes(
   return notes.sort((x, y) => x.beat - y.beat || x.lane - y.lane);
 }
 
-/** The sample-level set generated on upload: three five-key difficulties + letters. */
+/** The sample-level set generated on upload: three five-key difficulties + letters.
+ *  Every chart gets one spam section — a mash-for-points breather. */
 export function generateSampleCharts(song: SongData, a: SongAnalysis): ChartData[] {
-  const mk = (mode: GameMode, difficulty: Difficulty): ChartData => ({
-    id: uid(),
-    songId: song.id,
-    mode,
-    difficulty,
-    keys: [],
-    notes: generateNotes(song, a, mode, difficulty, mode === 'letters' ? 26 : 5),
-  });
+  const totalBeats = msToBeat(song, a.duration * 1000);
+  const mk = (mode: GameMode, difficulty: Difficulty): ChartData => {
+    const c: ChartData = {
+      id: uid(),
+      songId: song.id,
+      mode,
+      difficulty,
+      keys: [],
+      notes: generateNotes(song, a, mode, difficulty, mode === 'letters' ? 26 : 5),
+    };
+    applySpamSection(c, totalBeats);
+    return c;
+  };
   return [mk('five', 'easy'), mk('five', 'medium'), mk('five', 'hard'), mk('letters', 'medium')].filter(
     (c) => c.notes.length >= 8,
   );

@@ -3,7 +3,7 @@ import { Conductor } from '../engine/Conductor';
 import { GameSession } from '../engine/GameSession';
 import { InputRouter } from '../input/Keyboard';
 import { Playfield } from '../render/Playfield';
-import { compileNotes, laneCountOf, LETTERS } from '../charts/chart';
+import { beatToMs, compileNotes, laneCountOf, LETTERS } from '../charts/chart';
 import { multiplierFor } from '../types';
 import type { JudgeEvent, ReplayData, ReplayEventRec, ScoreRecord } from '../types';
 import { COUNTDOWN_SFX, START_SFX } from '../audio/uiSounds';
@@ -128,6 +128,12 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
     playfields.push(new Playfield(canvas, { mode: chart.mode, laneCount, labels: labelsFor(players[i].codes ?? s.bindings[i]) }, s));
   }
 
+  // mash-for-points windows, compiled to song ms once for sessions + rendering
+  const spamMs = (chart.spam ?? []).map((sp) => ({
+    startMs: beatToMs(song, sp.beat),
+    endMs: beatToMs(song, sp.beat + sp.durBeats),
+  }));
+
   const buildSessions = () => {
     sessions = players.map(
       (_, i) =>
@@ -137,6 +143,7 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
           windows: { ...s.windows },
           noFail,
           ownHealth: !band?.sharedHealth,
+          spamMs,
           onEvent: (ev) => onJudge(i, ev),
         }),
     );
@@ -150,7 +157,7 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
 
   function onJudge(playerIdx: number, ev: JudgeEvent): void {
     if (playerIdx === 0 && feverEligible) {
-      if (ev.type === 'hit' && feverOn) {
+      if ((ev.type === 'hit' || ev.type === 'spam') && feverOn) {
         feverExtra += ev.baseScore * multiplierFor(ev.comboAfter); // doubles the hit
       } else if (ev.comboAfter === 0 && ev.type !== 'hit' && ev.type !== 'holdComplete' && (feverOn || feverExtra > 0)) {
         endFever(true); // streak broken — the double points are lost
@@ -161,6 +168,8 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
       pf.setJudgment(ev.judgment!);
       pf.burst(ev.lane);
       if (s.hitSounds && !isReplay) ctx.audio.playHitSound(ev.judgment === 'perfect');
+    } else if (ev.type === 'spam') {
+      pf.burst(ev.lane); // every mash sparkles
     } else if (ev.type === 'miss') {
       pf.setJudgment('miss');
       if (s.hitSounds && !isReplay && !s.reducedEffects) ctx.audio.playMissSound();
@@ -413,6 +422,7 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
 
   function quit(): void {
     ended = true;
+    ctx.audio.stopUiSounds(); // cut the countdown if it's mid-play
     conductor.stop();
     if (params.test) ctx.nav('editor', { resume: params.test.resume });
     else if (params.online) ctx.nav('lobby', {});
@@ -482,9 +492,12 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
       windows: { ...s.windows },
       noFail: false,
       ownHealth: true,
+      spamMs,
       onEvent: (ev) => {
         if (ev.type === 'hit') {
           playfield.setJudgment(ev.judgment!);
+          playfield.burst(ev.lane);
+        } else if (ev.type === 'spam') {
           playfield.burst(ev.lane);
         } else if (ev.type === 'miss') {
           playfield.setJudgment('miss');
@@ -642,7 +655,7 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
     const nowV = nowJ + s.visualOffsetMs;
     const countdown = nowJ < startMs ? (startMs - nowJ) / (1000 * rate) : null;
     for (let i = 0; i < playfields.length; i++) {
-      playfields[i].draw(nowV, hudFor(i), countdown, sessions[i].notes);
+      playfields[i].draw(nowV, hudFor(i), countdown, sessions[i].notes, spamMs);
     }
     for (const r of remotes.values()) {
       r.playfield.draw(nowJ - REMOTE_VIEW_DELAY + s.visualOffsetMs, {
@@ -653,7 +666,7 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
         health: r.session.health,
         failed: r.session.failed,
         name: r.name,
-      }, countdown, r.session.notes);
+      }, countdown, r.session.notes, spamMs);
     }
   }
 
@@ -781,6 +794,7 @@ export function playScreen(root: HTMLElement, ctx: AppCtx, params: PlayParams): 
   return {
     destroy() {
       destroyed = true;
+      ctx.audio.stopUiSounds();
       document.body.classList.remove('fever-bg');
       cancelAnimationFrame(rafId);
       input.detach();

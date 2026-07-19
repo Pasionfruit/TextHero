@@ -100,15 +100,20 @@ function makeSqliteStore() {
     );
     CREATE INDEX IF NOT EXISTS idx_charts_song ON charts (song_id);
   `);
+  try {
+    db.exec("ALTER TABLE charts ADD COLUMN spam_json TEXT NOT NULL DEFAULT '[]'");
+  } catch {
+    /* column already exists */
+  }
   const stmtChartsBySong = db.prepare('SELECT * FROM charts WHERE song_id = ?');
   const stmtChartUpsert = db.prepare(
-    `INSERT INTO charts (chart_id, song_id, title, artist, bpm, offset_ms, mode, difficulty, keys_json, notes_json, updated_iso)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO charts (chart_id, song_id, title, artist, bpm, offset_ms, mode, difficulty, keys_json, notes_json, spam_json, updated_iso)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (chart_id) DO UPDATE SET
        song_id = excluded.song_id, title = excluded.title, artist = excluded.artist,
        bpm = excluded.bpm, offset_ms = excluded.offset_ms, mode = excluded.mode,
        difficulty = excluded.difficulty, keys_json = excluded.keys_json,
-       notes_json = excluded.notes_json, updated_iso = excluded.updated_iso`,
+       notes_json = excluded.notes_json, spam_json = excluded.spam_json, updated_iso = excluded.updated_iso`,
   );
   const stmtChartDelete = db.prepare('DELETE FROM charts WHERE chart_id = ?');
 
@@ -142,7 +147,7 @@ function makeSqliteStore() {
     },
     async putChart(c) {
       stmtChartUpsert.run(c.chart_id, c.song_id, c.title, c.artist, c.bpm, c.offset_ms, c.mode,
-        c.difficulty, c.keys_json, c.notes_json, c.updated_iso);
+        c.difficulty, c.keys_json, c.notes_json, c.spam_json, c.updated_iso);
     },
     async deleteChart(chartId) {
       return Number(stmtChartDelete.run(chartId).changes);
@@ -212,6 +217,7 @@ async function makePgStore(url) {
       updated_iso TEXT NOT NULL
     )`);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_charts_song ON charts (song_id)');
+  await pool.query("ALTER TABLE charts ADD COLUMN IF NOT EXISTS spam_json TEXT NOT NULL DEFAULT '[]'");
   await pool.query(`
     CREATE TABLE IF NOT EXISTS recommendations (
       id       SERIAL PRIMARY KEY,
@@ -238,14 +244,14 @@ async function makePgStore(url) {
     },
     async putChart(c) {
       await pool.query(
-        `INSERT INTO charts (chart_id, song_id, title, artist, bpm, offset_ms, mode, difficulty, keys_json, notes_json, updated_iso)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        `INSERT INTO charts (chart_id, song_id, title, artist, bpm, offset_ms, mode, difficulty, keys_json, notes_json, spam_json, updated_iso)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
          ON CONFLICT (chart_id) DO UPDATE SET
            song_id = EXCLUDED.song_id, title = EXCLUDED.title, artist = EXCLUDED.artist,
            bpm = EXCLUDED.bpm, offset_ms = EXCLUDED.offset_ms, mode = EXCLUDED.mode,
            difficulty = EXCLUDED.difficulty, keys_json = EXCLUDED.keys_json,
-           notes_json = EXCLUDED.notes_json, updated_iso = EXCLUDED.updated_iso`,
-        [c.chart_id, c.song_id, c.title, c.artist, c.bpm, c.offset_ms, c.mode, c.difficulty, c.keys_json, c.notes_json, c.updated_iso],
+           notes_json = EXCLUDED.notes_json, spam_json = EXCLUDED.spam_json, updated_iso = EXCLUDED.updated_iso`,
+        [c.chart_id, c.song_id, c.title, c.artist, c.bpm, c.offset_ms, c.mode, c.difficulty, c.keys_json, c.notes_json, c.spam_json, c.updated_iso],
       );
     },
     async deleteChart(chartId) {
@@ -372,6 +378,9 @@ function normalizeChart(c) {
     durBeats: clampNum(n.durBeats, 0, 1e4),
   }));
   const keys = Array.isArray(c.keys) ? c.keys.slice(0, 64).map((k) => cleanStr(k, 8)) : [];
+  const spam = Array.isArray(c.spam)
+    ? c.spam.slice(0, 16).map((sp) => ({ beat: clampNum(sp?.beat, 0, 1e6), durBeats: clampNum(sp?.durBeats, 0, 1e4) }))
+    : [];
   return {
     chart_id: chartId,
     song_id: songId,
@@ -383,6 +392,7 @@ function normalizeChart(c) {
     difficulty: c.difficulty,
     keys_json: JSON.stringify(keys),
     notes_json: JSON.stringify(notes),
+    spam_json: JSON.stringify(spam),
     updated_iso: new Date().toISOString(),
   };
 }
@@ -498,6 +508,7 @@ async function handleApi(req, res, url) {
       difficulty: r.difficulty,
       keys: safeParse(r.keys_json, []),
       notes: safeParse(r.notes_json, []),
+      spam: safeParse(r.spam_json, []),
       updatedIso: r.updated_iso,
     }));
     return sendJson(res, 200, { charts });

@@ -49,8 +49,9 @@ Notes:
 - **Letters mode** — any letter A–Z can come down the highway as a lettered gem; press *that letter* on the beat. Gems are spread across five columns by physical keyboard position (left-hand letters fall on the left), and judging is per-letter.
 - **Full Keyboard mode** — osu!mania/typing hybrid; the chart decides which keys appear (letters, digits, symbols), each with its own labeled lane.
 - Tap notes, **sustain (hold) notes**, and **chords** (simultaneous notes are just multiple notes on one beat).
+- **Spam zones**: every chart carries one mash-for-points window (~8 beats around the 65% mark) — inside it any key press scores freely with no penalties. Chart authors place their own with the editor's **Spam+** button.
 - Timing judgments **Perfect/Great/Good/Bad/Miss** (300/200/100/50/0) with colorful judgment popups. Judgment windows are **fixed for everyone** so leaderboard scores stay comparable.
-- **Combo & multiplier** (10→2x, 25→3x, 50→4x, 100→5x), multiplier resets on miss; live accuracy %, max combo.
+- **Combo & multiplier** (4→2x, 8→3x, 16→4x; fever doubles it), multiplier resets on miss; live accuracy %, max combo.
 - **Health/fail system** — accurate hits heal, misses/ghost taps/early-late (Bad) hits drain; zero health fails the song unless **No Fail** is on.
 - Final **grade** SS/S/A/B/C/D/F with full per-judgment statistics.
 

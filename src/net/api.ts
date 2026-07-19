@@ -83,6 +83,7 @@ export interface PublishedChart {
   difficulty: Difficulty;
   keys: string[];
   notes: { beat: number; lane: number; durBeats: number }[];
+  spam?: { beat: number; durBeats: number }[];
   updatedIso: string;
 }
 

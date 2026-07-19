@@ -36,12 +36,14 @@ export const JUDGE_HEALTH: Record<JudgmentName, number> = {
 export const GHOST_TAP_HEALTH = -1.5;
 export const HOLD_DROP_HEALTH = -1;
 export const HOLD_BONUS_SCORE = 50;
+/** points per tap inside a spam section (× multiplier) */
+export const SPAM_TAP_SCORE = 25;
 
+/** streak → multiplier: <4 = 1x, 4–7 = 2x, 8–15 = 3x, 16+ = 4x (fever doubles on top) */
 export const MULTIPLIER_TIERS: Array<[number, number]> = [
-  [100, 5],
-  [50, 4],
-  [25, 3],
-  [10, 2],
+  [16, 4],
+  [8, 3],
+  [4, 2],
 ];
 
 export function multiplierFor(combo: number): number {
@@ -56,6 +58,12 @@ export interface NoteData {
   durBeats: number; // 0 = tap note
 }
 
+/** A window where every key press scores freely — no judging, no penalties. */
+export interface SpamSection {
+  beat: number;
+  durBeats: number;
+}
+
 export interface ChartData {
   id: string;
   songId: string;
@@ -64,6 +72,8 @@ export interface ChartData {
   /** keyboard mode: which physical keys (uppercase e.key values) each lane uses. five mode: ignored (bindings come from settings). */
   keys: string[];
   notes: NoteData[];
+  /** mash-for-points windows */
+  spam?: SpamSection[];
   updatedIso?: string;
   /** set when this chart came from the server as the admin's published, canonical
    *  version — the one everyone plays and is ranked on */
@@ -140,7 +150,7 @@ export interface RuntimeNote {
 }
 
 export interface JudgeEvent {
-  type: 'hit' | 'miss' | 'ghost' | 'holdDrop' | 'holdComplete';
+  type: 'hit' | 'miss' | 'ghost' | 'holdDrop' | 'holdComplete' | 'spam';
   judgment?: JudgmentName;
   deltaMs?: number;
   lane: number;

@@ -21,7 +21,7 @@ const BUNDLED_PREFIX = 'bundled-';
 
 /** Bump when the auto-chart generator improves: bundled charts regenerate on
  *  next boot (charts the player edited in the editor are left alone). */
-const BUNDLED_CHART_GEN = 2;
+const BUNDLED_CHART_GEN = 3; // v3: every chart gets a spam section
 
 export const isBundledSong = (songId: string): boolean => songId.startsWith(BUNDLED_PREFIX);
 

@@ -41,6 +41,19 @@ export function laneCountOf(chart: ChartData): number {
 export const modeLabel = (m: GameMode): string => (m === 'five' ? '5K' : m === 'keyboard' ? 'KB' : 'ABC');
 export const modeName = (m: GameMode): string => (m === 'five' ? 'Five-Key' : m === 'keyboard' ? 'Keyboard' : 'Letters');
 
+export const SPAM_SECTION_BEATS = 8;
+
+/** Give a chart one mash-for-points section (~65% in, snapped to a measure),
+ *  clearing any regular notes that fall inside it. */
+export function applySpamSection(chart: ChartData, totalBeats: number): void {
+  const start = Math.round((totalBeats * 0.65) / 4) * 4;
+  if (start < 4 || start + SPAM_SECTION_BEATS >= totalBeats - 2) return; // song too short
+  chart.spam = [{ beat: start, durBeats: SPAM_SECTION_BEATS }];
+  chart.notes = chart.notes.filter(
+    (n) => n.beat + n.durBeats < start - 0.05 || n.beat > start + SPAM_SECTION_BEATS + 0.05,
+  );
+}
+
 export function makeEmptyChart(songId: string, mode: GameMode, difficulty: Difficulty): ChartData {
   return {
     id: uid(),
@@ -156,6 +169,7 @@ export function buildDemoCharts(): ChartData[] {
     buildLetterChart('hard', LETTERS, 'demo-letters-hard', 0xbeef),
   );
 
+  for (const c of charts) applySpamSection(c, DEMO_BEATS);
   return charts;
 }
 

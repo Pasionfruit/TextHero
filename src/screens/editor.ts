@@ -328,6 +328,11 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
         onclick: () => void autoFill(),
       }, icon('sparkle'), 'Auto-fill'),
       el('button', {
+        class: 'btn sm',
+        title: 'Add an 8-beat spam section at the playhead (clears notes inside; click again or right-click the band to remove)',
+        onclick: () => toggleSpamSection(),
+      }, 'Spam+'),
+      el('button', {
         class: 'btn sm danger',
         onclick: () => {
           if (charts.length <= 1) return toast('Cannot delete the only chart');
@@ -360,6 +365,30 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
       });
       toolbar2.append(el('span', { class: 'muted sm' }, 'Keys'), keysIn);
     }
+  }
+
+  /** Spam+ toggles a mash-for-points section: adds 8 beats at the playhead,
+   *  or removes the section the playhead is inside. */
+  function toggleSpamSection(): void {
+    const c = active();
+    if (!song || !c) return;
+    c.spam ??= [];
+    const at = playheadBeat;
+    const hit = c.spam.findIndex((sp) => at >= sp.beat && at <= sp.beat + sp.durBeats);
+    if (hit >= 0) {
+      c.spam.splice(hit, 1);
+      toast('Spam section removed');
+    } else {
+      const beat = clamp(snapBeat(at), 0, Math.max(0, totalBeats() - 8));
+      pushUndo();
+      notes = notes.filter((n) => n.beat + n.durBeats < beat - 0.05 || n.beat > beat + 8 + 0.05);
+      c.notes = notes;
+      selection.clear();
+      c.spam.push({ beat, durBeats: 8 });
+      c.spam.sort((a, b) => a.beat - b.beat);
+      toast('Spam section added — notes inside cleared');
+    }
+    dirty = true;
   }
 
   function commitActive(): void {
@@ -703,6 +732,17 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
       pushUndo();
       notes.splice(notes.indexOf(hit), 1);
       selection.delete(hit);
+      return;
+    }
+    // right-click on a spam band (no note under the cursor) removes the section
+    const c = active();
+    if (!c?.spam?.length || x < LANES_X) return;
+    const b = beatAtY(y);
+    const idx = c.spam.findIndex((sp) => b >= sp.beat && b <= sp.beat + sp.durBeats);
+    if (idx >= 0) {
+      c.spam.splice(idx, 1);
+      dirty = true;
+      toast('Spam section removed');
     }
   });
 
@@ -847,6 +887,23 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
       if (isMeasure) {
         ctx2.fillStyle = ink(0.5);
         ctx2.fillText(`${Math.round(b) / 4 + 1}`, RULER_X + 2, y - 3);
+      }
+    }
+
+    // spam sections: amber bands across the lanes
+    const activeChart = active();
+    if (activeChart?.spam?.length) {
+      const lend = laneX(laneCount() - 1) + laneW();
+      for (const sp of activeChart.spam) {
+        const y1 = yOf(sp.beat);
+        const y2 = yOf(sp.beat + sp.durBeats);
+        if (Math.max(y1, y2) < 0 || Math.min(y1, y2) > H) continue;
+        ctx2.fillStyle = 'rgba(255, 176, 55, 0.13)';
+        ctx2.fillRect(LANES_X, y1, lend - LANES_X, y2 - y1);
+        ctx2.fillStyle = 'rgba(255, 176, 55, 0.8)';
+        ctx2.font = `12px 'Kinder Child Kawaii Bubble', system-ui`;
+        ctx2.textAlign = 'center';
+        ctx2.fillText('SPAM ZONE', (LANES_X + lend) / 2, y1 + 16);
       }
     }
 

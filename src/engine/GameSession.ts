@@ -4,6 +4,7 @@ import {
   HOLD_DROP_HEALTH,
   JUDGE_HEALTH,
   JUDGE_SCORE,
+  SPAM_TAP_SCORE,
   multiplierFor,
 } from '../types';
 import type { JudgeEvent, JudgmentName, RuntimeNote, Windows } from '../types';
@@ -16,6 +17,8 @@ export interface SessionConfig {
   noFail: boolean;
   /** when false the session tracks health deltas in events but never fails itself (band shared-health mode) */
   ownHealth: boolean;
+  /** mash-for-points windows (song ms): presses inside score freely, no penalties */
+  spamMs?: Array<{ startMs: number; endMs: number }>;
   onEvent?: (ev: JudgeEvent) => void;
 }
 
@@ -42,6 +45,8 @@ export class GameSession {
   holdsCompleted = 0;
   holdsDropped = 0;
   ghostTaps = 0;
+  spamHits = 0;
+  private spamMs: Array<{ startMs: number; endMs: number }>;
 
   private byLane: RuntimeNote[][];
   private laneCursor: number[];
@@ -54,6 +59,7 @@ export class GameSession {
     this.windows = cfg.windows;
     this.noFail = cfg.noFail;
     this.ownHealth = cfg.ownHealth;
+    this.spamMs = cfg.spamMs ?? [];
     this.onEvent = cfg.onEvent;
     this.byLane = Array.from({ length: cfg.laneCount }, () => []);
     for (const n of this.notes) if (n.lane >= 0 && n.lane < cfg.laneCount) this.byLane[n.lane].push(n);
@@ -102,6 +108,19 @@ export class GameSession {
       }
     }
     if (!best) {
+      // inside a spam section every press scores freely — no notes, no penalty
+      if (this.spamMs.some((w) => tMs >= w.startMs && tMs <= w.endMs)) {
+        this.spamHits++;
+        this.score += SPAM_TAP_SCORE * multiplierFor(this.combo);
+        return this.emit({
+          type: 'spam',
+          lane,
+          tMs,
+          baseScore: SPAM_TAP_SCORE,
+          healthDelta: 0,
+          comboAfter: this.combo,
+        });
+      }
       // ghost tap: pressing with nothing to hit costs health (spec: incorrect keys)
       this.ghostTaps++;
       const ev: JudgeEvent = {

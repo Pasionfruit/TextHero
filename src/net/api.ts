@@ -173,6 +173,26 @@ const ADMIN_TOKEN_KEY = 'texthero.admin.token.v1';
 export const adminToken = (): string | null => localStorage.getItem(ADMIN_TOKEN_KEY);
 export const clearAdminToken = (): void => localStorage.removeItem(ADMIN_TOKEN_KEY);
 
+/** Confirm the stored token is still a live admin session before showing any
+ *  admin UI. A token the server rejects is cleared; a network error just
+ *  reports false without clearing (the server may be briefly unreachable). */
+export async function verifyAdmin(s: Settings): Promise<boolean> {
+  const token = adminToken();
+  if (!token) return false;
+  try {
+    const res = await fetch(`${apiBase(s)}/api/admin/check`, {
+      headers: { authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    const data = await res.json().catch(() => null);
+    if (data?.ok) return true;
+    clearAdminToken();
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export async function adminLogin(s: Settings, username: string, password: string): Promise<void> {
   const res = await fetch(`${apiBase(s)}/api/admin/login`, {
     method: 'POST',

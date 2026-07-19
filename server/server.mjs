@@ -570,6 +570,11 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, { ok: true, deleted: await store.deleteRecommendation(id) });
   }
 
+  // is this bearer token a live admin session? (used to hide admin UI from everyone else)
+  if (url.pathname === '/api/admin/check' && req.method === 'GET') {
+    return sendJson(res, 200, { ok: isAdmin(req) });
+  }
+
   if (url.pathname === '/api/admin/login' && req.method === 'POST') {
     let body;
     try {

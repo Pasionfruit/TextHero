@@ -2,7 +2,7 @@ import type { AppCtx, PlayParams, Screen } from '../app';
 import type { ChartData, ScoreRecord, SongData } from '../types';
 import { DEMO_SONG_ID, makeEmptyChart, modeLabel } from '../charts/chart';
 import { analyzeSong, estimateGrid, generateSampleCharts } from '../charts/autochart';
-import { adminDeleteRecommendation, adminDeleteScore, adminToken, adminUpdateScore, fetchLeaderboard, fetchRecommendations, submitRecommendation, type LeaderboardEntry } from '../net/api';
+import { adminDeleteRecommendation, adminDeleteScore, adminToken, adminUpdateScore, fetchLeaderboard, fetchRecommendations, submitRecommendation, verifyAdmin, type LeaderboardEntry } from '../net/api';
 import { isBundledSong, LIBRARY_CHANGED_EVENT } from '../store/bundled';
 import { icon } from '../ui/icons';
 import { syncPublishedCharts } from '../store/publish';
@@ -125,6 +125,18 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
   };
 
   const s = ctx.settings;
+
+  // admin UI (edit/delete buttons) only appears once the server confirms the
+  // stored token is a live admin session — a raw localStorage check would show
+  // the buttons to anyone with a stale or forged token
+  let adminOk = false;
+  if (adminToken()) {
+    void verifyAdmin(ctx.settings).then((ok) => {
+      if (ok === adminOk) return;
+      adminOk = ok;
+      if (selectedSong) void renderDetail();
+    });
+  }
 
   async function refresh(keepSongId?: string): Promise<void> {
     songs = (await ctx.db.songs()).sort((a, b) => a.title.localeCompare(b.title));
@@ -322,7 +334,7 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
       detailBox.append(globalLb);
       // if the selection changes mid-fetch, renderDetail() rebuilt detailBox and
       // this panel is detached — updating it is then a harmless no-op
-      const isAdmin = !!adminToken();
+      const isAdmin = adminOk;
       void fetchLeaderboard(ctx.settings, selectedChart.id)
         .then((scores) => {
           globalLb.innerHTML = '';
@@ -523,7 +535,7 @@ export function songSelectScreen(root: HTMLElement, ctx: AppCtx, params: { songI
   function recommendDialog(): void {
     const dlg = el('div', { class: 'modal-back' });
     const body = el('div', { class: 'panel modal' });
-    const isAdmin = !!adminToken();
+    const isAdmin = adminOk;
 
     const render = async (): Promise<void> => {
       body.innerHTML = '';

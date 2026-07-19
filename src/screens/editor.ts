@@ -119,8 +119,25 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
   };
   const laneX = (lane: number): number => LANES_X + lane * (laneW() + 4);
 
+  // undo snapshots capture notes AND spam zones together, so undoing a zone
+  // add restores the cleared notes only alongside removing the zone itself —
+  // notes and zones can never get out of sync through undo/redo
+  const snapshot = (): string => JSON.stringify({ notes, spam: active()?.spam ?? [] });
+
+  function restore(json: string): void {
+    const d = JSON.parse(json);
+    notes = Array.isArray(d) ? d : d.notes;
+    const c = active();
+    if (c) {
+      c.notes = notes;
+      if (!Array.isArray(d)) c.spam = d.spam;
+    }
+    selection.clear();
+    dirty = true;
+  }
+
   function pushUndo(): void {
-    undoStack.push(JSON.stringify(notes));
+    undoStack.push(snapshot());
     if (undoStack.length > 200) undoStack.shift();
     redoStack.length = 0;
     dirty = true;
@@ -128,21 +145,19 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
 
   function undo(): void {
     if (!undoStack.length) return;
-    redoStack.push(JSON.stringify(notes));
-    notes = JSON.parse(undoStack.pop()!);
-    active()!.notes = notes;
-    selection.clear();
-    dirty = true;
+    redoStack.push(snapshot());
+    restore(undoStack.pop()!);
   }
 
   function redo(): void {
     if (!redoStack.length) return;
-    undoStack.push(JSON.stringify(notes));
-    notes = JSON.parse(redoStack.pop()!);
-    active()!.notes = notes;
-    selection.clear();
-    dirty = true;
+    undoStack.push(snapshot());
+    restore(redoStack.pop()!);
   }
+
+  /** does a note starting at beat b (lasting d beats) touch any spam zone? */
+  const overlapsSpam = (b: number, d = 0): boolean =>
+    !!active()?.spam?.some((sp) => b + d >= sp.beat - 0.05 && b <= sp.beat + sp.durBeats + 0.05);
 
   // ---- toolbar ----
   function renderToolbars(): void {
@@ -376,6 +391,7 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
     const at = playheadBeat;
     const hit = c.spam.findIndex((sp) => at >= sp.beat && at <= sp.beat + sp.durBeats);
     if (hit >= 0) {
+      pushUndo();
       c.spam.splice(hit, 1);
       toast('Spam section removed');
     } else {
@@ -516,6 +532,10 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
 
   function finalizeRecNote(n: NoteData, upBeat: number): void {
     const spb = snapPerBeat();
+    // a key held across a spam zone ends its hold at the zone's edge
+    for (const sp of active()?.spam ?? []) {
+      if (sp.beat >= n.beat && upBeat >= sp.beat - 0.05) upBeat = Math.min(upBeat, sp.beat - 1 / spb);
+    }
     const dur = Math.round((upBeat - n.beat) * spb) / spb;
     // long presses become holds; quick taps stay taps
     n.durBeats = dur >= Math.max(0.5, 1 / spb) ? clamp(dur, 0, 8) : 0;
@@ -570,6 +590,7 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
     if (e.type === 'keydown') {
       if (e.repeat || recHeld.has(lane) || !song) return;
       const n: NoteData = { beat: snapBeat(recBeatAt(e.timeStamp)), lane, durBeats: 0 };
+      if (overlapsSpam(n.beat)) return; // taps inside a spam zone aren't chart notes
       notes.push(n);
       recHeld.set(lane, n);
     } else {
@@ -664,6 +685,10 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
     const lane = laneAtX(x);
     if (lane < 0) return;
     const beat = clamp(snapBeat(beatAtY(y)), 0, totalBeats());
+    if (overlapsSpam(beat)) {
+      toast('Notes can’t be placed inside a spam zone');
+      return;
+    }
     pushUndo();
     const note: NoteData = { beat, lane, durBeats: 0 };
     notes.push(note);
@@ -679,7 +704,12 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
     if (drag.kind === 'scrub') {
       playheadBeat = clamp(snapBeat(beatAtY(y)), 0, totalBeats());
     } else if (drag.kind === 'place') {
-      drag.note.durBeats = Math.max(0, snapBeat(beatAtY(y)) - drag.note.beat);
+      // a hold tail may not reach into a spam zone ahead of it
+      let end = snapBeat(beatAtY(y));
+      for (const sp of active()?.spam ?? []) {
+        if (sp.beat >= drag.note.beat && end >= sp.beat - 0.05) end = Math.min(end, sp.beat - 1 / snapPerBeat());
+      }
+      drag.note.durBeats = Math.max(0, end - drag.note.beat);
     } else if (drag.kind === 'move') {
       const dBeat = snapBeat(beatAtY(y) - drag.startBeat);
       const dLane = laneAtX(x) >= 0 ? laneAtX(x) - drag.startLane : 0;
@@ -706,6 +736,13 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
         if (nx >= x0 && nx <= x1 && ny >= y0 - 6 && ny <= y1 + 6) selection.add(n);
       }
     }
+    if (drag.kind === 'move' && drag.orig.some((o) => overlapsSpam(o.note.beat, o.note.durBeats))) {
+      for (const o of drag.orig) {
+        o.note.beat = o.beat;
+        o.note.lane = o.lane;
+      }
+      toast('Notes can’t be moved into a spam zone');
+    }
     if (drag.kind === 'move' || drag.kind === 'place') dedupeNotes();
     drag = null;
   }
@@ -727,22 +764,22 @@ export function editorScreen(root: HTMLElement, ctx: AppCtx, params: { songId?: 
   canvas.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     const { x, y } = canvasPos(e);
+    // spam bands win over notes: zones normally contain none, and a band must
+    // stay removable even if stray notes from an older chart overlap it
+    const c = active();
+    const b = beatAtY(y);
+    const idx = c?.spam?.findIndex((sp) => b >= sp.beat && b <= sp.beat + sp.durBeats) ?? -1;
+    if (c && idx >= 0 && x >= LANES_X) {
+      pushUndo();
+      c.spam!.splice(idx, 1);
+      toast('Spam section removed');
+      return;
+    }
     const hit = noteAt(x, y);
     if (hit) {
       pushUndo();
       notes.splice(notes.indexOf(hit), 1);
       selection.delete(hit);
-      return;
-    }
-    // right-click on a spam band (no note under the cursor) removes the section
-    const c = active();
-    if (!c?.spam?.length || x < LANES_X) return;
-    const b = beatAtY(y);
-    const idx = c.spam.findIndex((sp) => b >= sp.beat && b <= sp.beat + sp.durBeats);
-    if (idx >= 0) {
-      c.spam.splice(idx, 1);
-      dirty = true;
-      toast('Spam section removed');
     }
   });
 

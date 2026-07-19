@@ -1,5 +1,5 @@
 import type { AppCtx, Screen } from '../app';
-import { adminLogin, adminToken, clearAdminToken, nameAllowed } from '../net/api';
+import { adminLogin, adminToken, clearAdminToken, nameAllowed, verifyAdmin } from '../net/api';
 import { applyTheme, DEFAULT_SETTINGS } from '../store/settings';
 import { icon } from '../ui/icons';
 import { codeLabel, el, toast } from '../util';
@@ -32,6 +32,8 @@ export function settingsScreen(root: HTMLElement, ctx: AppCtx, _params: any): Sc
   root.append(page);
 
   let capturing: { el: HTMLButtonElement; set: (code: string) => void } | null = null;
+  let titleClicks = 0;
+  let showAdminLogin = false;
   const onCapture = (e: KeyboardEvent) => {
     if (!capturing) return;
     e.preventDefault();
@@ -54,10 +56,19 @@ export function settingsScreen(root: HTMLElement, ctx: AppCtx, _params: any): Sc
 
   function render(): void {
     page.innerHTML = '';
+    const title = el('h1', { class: 'page-title centered' }, 'Settings');
+    // clicking the title 5 times reveals the admin login — regular players
+    // shouldn't see that leaderboard moderation exists at all
+    title.addEventListener('click', () => {
+      if (++titleClicks >= 5 && !adminToken()) {
+        showAdminLogin = true;
+        render();
+      }
+    });
     page.append(
       el('div', { class: 'page-head' },
         el('button', { class: 'btn back-btn', title: 'Back to menu', onclick: () => ctx.nav('menu') }, icon('chevronleft', 18)),
-        el('h1', { class: 'page-title centered' }, 'Settings'),
+        title,
         el('div'),
       ),
     );
@@ -158,9 +169,11 @@ export function settingsScreen(root: HTMLElement, ctx: AppCtx, _params: any): Sc
       row('Multiplayer server', el('input', { type: 'text', value: s.serverUrl, style: { width: '240px' }, onchange: (e: Event) => (s.serverUrl = (e.target as HTMLInputElement).value) })),
     ));
 
-    // admin: manage the global leaderboard (credentials are verified server-side)
-    const adminPanel = el('div', { class: 'panel' }, el('h3', null, 'Admin'));
+    // admin: hidden from regular players entirely. The panel renders only when
+    // an admin session exists, or after the hidden reveal (5 clicks on the
+    // page title). Credentials are verified server-side.
     if (adminToken()) {
+      const adminPanel = el('div', { class: 'panel' }, el('h3', null, 'Admin'));
       adminPanel.append(
         el('div', { class: 'muted sm' }, 'Logged in as admin — edit/delete buttons appear on global leaderboards in Song Select.'),
         el('div', { class: 'btn-row end' },
@@ -168,13 +181,21 @@ export function settingsScreen(root: HTMLElement, ctx: AppCtx, _params: any): Sc
             class: 'btn',
             onclick: () => {
               clearAdminToken();
+              showAdminLogin = false;
+              titleClicks = 0;
               toast('Logged out');
               render();
             },
           }, 'Log out'),
         ),
       );
-    } else {
+      page.append(adminPanel);
+      // stale token (expired server-side)? drop the panel so it doesn't advertise
+      void verifyAdmin(s).then((ok) => {
+        if (!ok && !adminToken()) render();
+      });
+    } else if (showAdminLogin) {
+      const adminPanel = el('div', { class: 'panel' }, el('h3', null, 'Admin'));
       const userIn = el('input', { type: 'text', placeholder: 'Username', autocomplete: 'username' });
       const passIn = el('input', { type: 'password', placeholder: 'Password', autocomplete: 'current-password' });
       const loginBtn = el('button', { class: 'btn primary' }, 'Log in') as HTMLButtonElement;
@@ -197,11 +218,10 @@ export function settingsScreen(root: HTMLElement, ctx: AppCtx, _params: any): Sc
       adminPanel.append(
         row('Username', userIn),
         row('Password', passIn),
-        el('div', { class: 'muted sm' }, 'Admins can edit or remove entries on the global leaderboard.'),
         el('div', { class: 'btn-row end' }, loginBtn),
       );
+      page.append(adminPanel);
     }
-    page.append(adminPanel);
 
     page.append(el('div', { class: 'panel' },
       el('h3', null, 'Data'),

@@ -528,20 +528,46 @@ input[type="range"] { accent-color: var(--accent); padding: 0; border: none; bac
 
 /* ---- mobile ---- */
 @media (max-width: 800px) {
-  .page { margin: 10px auto; height: calc(100vh - 20px); padding: 16px 14px 24px; width: calc(100% - 16px); }
-  .page-title, .site-title { font-size: 24px; }
+  .page { margin: 10px auto; height: calc(100vh - 20px); padding: 14px 12px 22px; width: calc(100% - 16px); }
+  /* dvh excludes the browser's collapsing address bar, so the card really fits */
+  @supports (height: 100dvh) { .page { height: calc(100dvh - 20px); } }
+  .page-title, .site-title { font-size: 22px; }
   .logo { font-size: 40px; }
-  .select-head { grid-template-columns: 1fr; gap: 8px; }
-  .select-cols { grid-template-columns: 1fr; margin-top: 14px; }
-  .song-col { order: -1; }
+
+  /* Song select on a phone is ONE continuous column that scrolls with the card.
+     The desktop layout constrains .select-cols with flex:1 and gives the list its
+     own scroller; stacked into a single grid column that squeezed the rows shorter
+     than the list, so song cards spilled out and painted over the detail panel. */
+  .select-head { grid-template-columns: 1fr; gap: 10px; }
+  .head-right { flex-wrap: wrap; gap: 8px; }
+  .col-btns { flex-direction: row; }        /* Suggest + Upload side by side, not stacked */
   .page.songselect { overflow-y: auto; }
-  .page.songselect .song-list { max-height: 42vh; flex: none; }
-  .song-detail { overflow: visible; }
+  .select-cols { grid-template-columns: 1fr; margin-top: 12px; gap: 14px; }
+  .page.songselect .select-cols { flex: none; min-height: 0; }  /* content height, not squeezed */
+  .song-col { order: -1; min-height: 0; }
+  .page.songselect .song-list { max-height: 46vh; flex: none; }
+  .song-list { padding-right: 4px; }
+  .song-list::-webkit-scrollbar { width: 10px; }
+  .song-detail { overflow: visible; padding-right: 0; }
+  .wheel-hint { display: none; }            /* no arrow keys / Enter on touch */
+
+  /* comfortable touch targets */
+  .btn.sm { padding: 7px 12px; }
+  .song-card { padding: 12px 10px; }
+  .card-play { width: 44px; height: 40px; }
+  .chip { padding: 7px 14px; }
+
   .grid2 { grid-template-columns: 1fr; }
   .results-row { flex-direction: column; }
   .modal, .play-setup { min-width: 0; width: 92vw; }
+  /* dialogs: label above a full-width field, so narrow inputs (BPM) don't sit
+     beside their label while every other row wraps below it */
+  .modal .form-row { flex-direction: column; align-items: stretch; gap: 4px; }
+  .modal .form-row > label { min-width: 0; }
+  .modal input:not([type='checkbox']):not([type='color']), .modal select { width: 100%; }
   .theme-toggle { top: 8px; right: 8px; width: 34px; height: 34px; }
-  .head-right { flex-wrap: wrap; }
+  /* keep the header clear of the floating theme toggle */
+  .page.songselect .select-head > .row:first-child { padding-right: 42px; }
 }
 
 /* ---- modal / toasts ---- */
